@@ -1,0 +1,227 @@
+/*
+This CSS file will be included with your plugin,
+and available in the app when your plugin is enabled.
+*/
+
+.import-url-modal {
+	display: flex;
+	flex-direction: column;
+	gap: 1.1rem;
+	padding-bottom: 0.4rem;
+}
+
+.import-url-hero {
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+}
+
+.import-url-copy {
+	margin: 0;
+	color: var(--text-muted);
+	line-height: 1.45;
+}
+
+.import-url-input-wrapper {
+	width: 100%;
+}
+
+.import-url-input {
+	width: 100%;
+	font-size: 1rem;
+}
+
+.import-url-toolbar {
+	display: flex;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
+.import-url-summary {
+	padding: 0.75rem 0.9rem;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 12px;
+	background: linear-gradient(135deg, var(--background-secondary), var(--background-primary-alt));
+	color: var(--text-muted);
+	line-height: 1.4;
+}
+
+.import-url-section {
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+}
+
+.import-url-section h3 {
+	margin: 0;
+}
+
+.import-url-section-copy {
+	margin: 0;
+	color: var(--text-muted);
+	font-size: 0.92rem;
+}
+
+.import-url-model-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.55rem;
+}
+
+.import-url-model-pill {
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	color: var(--text-normal);
+	border-radius: 999px;
+	padding: 0.45rem 0.8rem;
+	font-size: 0.88rem;
+	cursor: pointer;
+}
+
+.import-url-model-pill.is-active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border-color: var(--interactive-accent);
+}
+
+.import-url-history {
+	display: flex;
+	flex-direction: column;
+	gap: 0.9rem;
+	max-height: 44vh;
+	overflow: auto;
+	padding-right: 0.15rem;
+}
+
+.import-url-history-group {
+	display: flex;
+	flex-direction: column;
+	gap: 0.45rem;
+}
+
+.import-url-history-heading {
+	margin: 0;
+	font-size: 0.9rem;
+	color: var(--text-muted);
+}
+
+.import-url-history-item {
+	display: flex;
+	flex-direction: column;
+	gap: 0.45rem;
+	padding: 0.8rem 0.9rem;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 14px;
+	background: var(--background-secondary);
+}
+
+.import-url-history-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+
+.import-url-history-title {
+	font-weight: 600;
+	word-break: break-word;
+}
+
+.import-url-history-url,
+.import-url-history-meta,
+.import-url-history-error,
+.import-url-history-progress-text {
+	font-size: 0.88rem;
+	line-height: 1.35;
+	word-break: break-word;
+}
+
+.import-url-history-url,
+.import-url-history-meta {
+	color: var(--text-muted);
+}
+
+.import-url-history-error {
+	color: var(--text-error);
+}
+
+.import-url-history-progress {
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+}
+
+.import-url-history-progress-bar {
+	width: 100%;
+	height: 8px;
+	border-radius: 999px;
+	background: var(--background-primary);
+	overflow: hidden;
+	border: 1px solid var(--background-modifier-border);
+}
+
+.import-url-history-progress-fill {
+	height: 100%;
+	border-radius: inherit;
+	background: linear-gradient(90deg, var(--interactive-accent), color-mix(in srgb, var(--interactive-accent) 65%, white));
+}
+
+.import-url-history-progress-text {
+	color: var(--text-muted);
+}
+
+.import-url-history-status {
+	flex: 0 0 auto;
+	border-radius: 999px;
+	padding: 0.2rem 0.55rem;
+	font-size: 0.76rem;
+	font-weight: 600;
+}
+
+.import-url-history-status.is-processing {
+	background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+	color: var(--interactive-accent);
+}
+
+.import-url-history-status.is-complete {
+	background: color-mix(in srgb, var(--color-green) 18%, transparent);
+	color: var(--color-green);
+}
+
+.import-url-history-status.is-failed {
+	background: color-mix(in srgb, var(--color-red) 18%, transparent);
+	color: var(--color-red);
+}
+
+.import-url-history-actions {
+	display: flex;
+	gap: 0.55rem;
+	flex-wrap: wrap;
+}
+
+.import-url-history-actions button {
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	border-radius: 10px;
+	padding: 0.35rem 0.7rem;
+	cursor: pointer;
+}
+
+.import-url-empty {
+	padding: 0.85rem 0.9rem;
+	border: 1px dashed var(--background-modifier-border);
+	border-radius: 12px;
+	color: var(--text-muted);
+}
+
+.import-url-textarea {
+	min-height: 7rem;
+	font-family: var(--font-monospace);
+}
+
+.import-url-actions {
+	display: flex;
+	gap: 0.75rem;
+	justify-content: flex-end;
+}
