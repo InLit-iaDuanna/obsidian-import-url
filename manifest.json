@@ -1,7 +1,7 @@
 {
 	"id": "import-url",
 	"name": "Import URL",
-	"version": "1.3.0",
+	"version": "1.0.1",
 	"minAppVersion": "1.11.4",
 	"description": "Import a URL into a structured Obsidian note with OpenAI.",
 	"author": "isduanna",

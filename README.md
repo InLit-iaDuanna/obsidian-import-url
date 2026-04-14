@@ -1,5 +1,7 @@
 # Import URL
 
+[中文说明](./README.zh-CN.md)
+
 Import URL is an Obsidian community plugin that imports a public web page or direct PDF URL into your vault and turns it into a structured Markdown note with OpenAI.
 
 ## What it does
