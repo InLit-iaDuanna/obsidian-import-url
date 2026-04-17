@@ -32,9 +32,9 @@ export class ImportUrlModal extends Modal {
 		contentEl.addClass("import-url-modal");
 
 		const heroEl = contentEl.createDiv({cls: "import-url-hero"});
-		heroEl.createEl("h2", {text: "Import URL"});
+		heroEl.createEl("h2", {text: "Import from URL"});
 		heroEl.createEl("p", {
-			text: "粘贴一个公开网页或公开直达 PDF URL，快速选择模型，并从最近记录里继续上次的导入。",
+			text: "Paste a public webpage or direct PDF URL, choose a model, and continue from recent import history.",
 			cls: "import-url-copy",
 		});
 
@@ -55,12 +55,12 @@ export class ImportUrlModal extends Modal {
 
 		const toolbarEl = contentEl.createDiv({cls: "import-url-toolbar"});
 		new ButtonComponent(toolbarEl)
-			.setButtonText("粘贴剪贴板")
+			.setButtonText("Paste")
 			.onClick(() => {
 				void this.pasteClipboard();
 			});
 		new ButtonComponent(toolbarEl)
-			.setButtonText("清空")
+			.setButtonText("Clear")
 			.onClick(() => {
 				this.input.setValue("");
 				this.updateSummary("");
@@ -69,26 +69,28 @@ export class ImportUrlModal extends Modal {
 		this.summaryEl = contentEl.createDiv({cls: "import-url-summary"});
 
 		const modelSectionEl = contentEl.createDiv({cls: "import-url-section"});
-		modelSectionEl.createEl("h3", {text: "模型"});
+		modelSectionEl.createEl("h3", {text: "Model"});
 		modelSectionEl.createEl("p", {
-			text: "点一下就能切换本次导入模型；会记住你最后一次使用的选择。",
+			text: "Pick a model for this import. Your last choice is remembered.",
 			cls: "import-url-section-copy",
 		});
 		this.modelListEl = modelSectionEl.createDiv({cls: "import-url-model-list"});
 
 		const historySectionEl = contentEl.createDiv({cls: "import-url-section"});
-		historySectionEl.createEl("h3", {text: "最近提交"});
+		historySectionEl.createEl("h3", {text: "Recent imports"});
 		historySectionEl.createEl("p", {
-			text: "按时间整理。可以填回输入框继续改，也可以直接再导入一次。",
+			text: "Sorted by time. Fill the URL back into input or run the same import again.",
 			cls: "import-url-section-copy",
 		});
 		this.historyEl = historySectionEl.createDiv({cls: "import-url-history"});
 
 		const actionsEl = contentEl.createDiv({cls: "import-url-actions"});
 		this.submitButton = new ButtonComponent(actionsEl)
-			.setButtonText("Import URL")
+			.setButtonText("Import")
 			.setCta();
-		this.submitButton.onClick(() => this.handleSubmit());
+		this.submitButton.onClick(() => {
+			this.handleSubmit();
+		});
 
 		new ButtonComponent(actionsEl)
 			.setButtonText("Cancel")
@@ -106,12 +108,8 @@ export class ImportUrlModal extends Modal {
 
 	private refreshState(): void {
 		const busy = this.options.isBusy();
-		if (this.input) {
-			this.input.setDisabled(busy);
-		}
-		if (this.submitButton) {
-			this.submitButton.setDisabled(busy);
-		}
+		this.input.setDisabled(busy);
+		this.submitButton.setDisabled(busy);
 	}
 
 	private renderModelOptions(): void {
@@ -141,7 +139,7 @@ export class ImportUrlModal extends Modal {
 		if (groups.length === 0) {
 			this.historyEl.createDiv({
 				cls: "import-url-empty",
-				text: "还没有导入历史。你提交过的 URL 会自动记录在这里。",
+				text: "No import history yet. Submitted URLs will appear here.",
 			});
 			return;
 		}
@@ -197,7 +195,7 @@ export class ImportUrlModal extends Modal {
 
 				const actionRowEl = itemEl.createDiv({cls: "import-url-history-actions"});
 				const fillButton = actionRowEl.createEl("button", {
-					text: "填入",
+					text: "Fill URL",
 					cls: "mod-cta",
 				});
 				fillButton.type = "button";
@@ -209,7 +207,7 @@ export class ImportUrlModal extends Modal {
 				});
 
 				const rerunButton = actionRowEl.createEl("button", {
-					text: "再导入",
+					text: "Re-import",
 				});
 				rerunButton.type = "button";
 				rerunButton.addEventListener("click", () => {
@@ -225,12 +223,12 @@ export class ImportUrlModal extends Modal {
 
 	private getStatusLabel(entry: ImportHistoryEntry): string {
 		if (entry.status === "complete") {
-			return "成功";
+			return "Complete";
 		}
 		if (entry.status === "failed") {
-			return "失败";
+			return "Failed";
 		}
-		return "处理中";
+		return "Processing";
 	}
 
 	private formatTimestamp(timestamp: string): string {
@@ -247,19 +245,19 @@ export class ImportUrlModal extends Modal {
 		const trimmed = rawUrl.trim();
 		const modelText = this.options.modelOptions.find((option) => option.id === this.selectedModel)?.label ?? this.selectedModel;
 		const apiBaseUrl = this.options.resolveApiBaseUrl(this.selectedModel);
-		const apiText = apiBaseUrl || "未设置 API 地址";
+		const apiText = apiBaseUrl || "No API URL configured";
 
 		if (!trimmed) {
-			this.summaryEl.setText(`当前模型：${modelText} · 接口：${apiText}。支持公开网页和公开直达 PDF。`);
+			this.summaryEl.setText(`Model: ${modelText} · API URL: ${apiText}. Supports public webpages and direct PDF URLs.`);
 			return;
 		}
 
 		try {
 			const url = new URL(trimmed);
 			const looksLikePdf = url.pathname.toLowerCase().endsWith(".pdf");
-			this.summaryEl.setText(`来源：${url.host} · 类型预判：${looksLikePdf ? "PDF" : "网页"} · 当前模型：${modelText} · 接口：${apiText}`);
+			this.summaryEl.setText(`Source: ${url.host} · Type: ${looksLikePdf ? "PDF" : "Webpage"} · Model: ${modelText} · API URL: ${apiText}`);
 		} catch {
-			this.summaryEl.setText(`URL 格式还不完整，但你可以继续粘贴。当前模型：${modelText} · 接口：${apiText}`);
+			this.summaryEl.setText(`URL format is incomplete. You can keep pasting. Model: ${modelText} · API URL: ${apiText}`);
 		}
 	}
 
@@ -267,26 +265,26 @@ export class ImportUrlModal extends Modal {
 		try {
 			const clipboardText = await navigator.clipboard?.readText?.();
 			if (!clipboardText?.trim()) {
-				new Notice("剪贴板里没有可用的 URL。", 3000);
+				new Notice("No URL found in clipboard.", 3000);
 				return;
 			}
 
 			this.input.setValue(clipboardText.trim());
 			this.updateSummary(clipboardText.trim());
 		} catch {
-			new Notice("读取剪贴板失败，请手动粘贴。", 4000);
+			new Notice("Could not read clipboard. Paste manually.", 4000);
 		}
 	}
 
 	private handleSubmit(): void {
 		if (this.options.isBusy()) {
-			new Notice("已有导入任务正在进行，请稍候。", 4000);
+			new Notice("Another import is already running. Please wait.", 4000);
 			return;
 		}
 
 		const rawUrl = this.input.getValue().trim();
 		if (!rawUrl) {
-			new Notice("请先输入 URL。", 3000);
+			new Notice("Enter a URL first.", 3000);
 			return;
 		}
 

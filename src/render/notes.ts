@@ -28,7 +28,7 @@ export function randomHexSuffix(): string {
 
 export function sanitizeNoteTitle(rawTitle: string): string {
 	return rawTitle
-		.replace(/[\/\\:*?"<>|\[\]#^]/g, " ")
+		.replace(/[[\]\\:*?"<>|#^/]/g, " ")
 		.replace(/\s+/g, " ")
 		.trim()
 		.slice(0, 80)

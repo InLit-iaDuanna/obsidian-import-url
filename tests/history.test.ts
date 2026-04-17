@@ -45,6 +45,6 @@ describe("history helpers", () => {
 			makeEntry("older", "2026-03-30T03:00:00.000Z"),
 		], new Date("2026-04-13T12:00:00.000Z"));
 
-		expect(groups.map((group) => group.label)).toEqual(["今天", "昨天", "近 7 天", "更早"]);
+		expect(groups.map((group) => group.label)).toEqual(["Today", "Yesterday", "Last 7 days", "Older"]);
 	});
 });

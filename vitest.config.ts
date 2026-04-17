@@ -1,10 +1,11 @@
 import {defineConfig} from "vitest/config";
-import {fileURLToPath, URL} from "node:url";
+
+const obsidianMockPath = decodeURIComponent(new URL("./tests/obsidian-mock.ts", import.meta.url).pathname);
 
 export default defineConfig({
 	resolve: {
 		alias: {
-			obsidian: fileURLToPath(new URL("./tests/obsidian-mock.ts", import.meta.url)),
+			obsidian: obsidianMockPath,
 		},
 	},
 	test: {

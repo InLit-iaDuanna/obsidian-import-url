@@ -121,11 +121,13 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 		const {containerEl} = this;
 		containerEl.empty();
 
-		containerEl.createEl("h2", {text: "Import URL"});
+		new Setting(containerEl)
+			.setName("Connection")
+			.setHeading();
 
 		new Setting(containerEl)
-			.setName("openAiSecretName")
-			.setDesc("用于系统安全存储中 OpenAI API key 的键名。")
+			.setName("Secret key name")
+			.setDesc("Key name used to read and write the API key in Obsidian secret storage.")
 			.addText((text) => {
 				text.setPlaceholder(DEFAULT_SETTINGS.openAiSecretName)
 					.setValue(this.plugin.settings.openAiSecretName)
@@ -138,23 +140,35 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 		this.buildApiKeySetting(containerEl);
 		this.buildConfigTomlSetting(containerEl);
 		this.buildApiBaseUrlSetting(containerEl);
-		this.buildModelSettings(containerEl);
 		this.buildConnectionTestSetting(containerEl);
-		this.buildTextSetting(containerEl, "outputFolder", "成功笔记写入目录。");
-		this.buildTextSetting(containerEl, "processingFolder", "处理中临时笔记目录。");
-		this.buildTextSetting(containerEl, "failedFolder", "失败笔记目录。");
-		this.buildTextSetting(containerEl, "historyFolder", "导入历史写入目录。这里的笔记会在 Obsidian 文件列表里可见。");
-		this.buildTextSetting(containerEl, "defaultLanguage", "输出语言，默认 zh-CN。");
-		this.buildNumberSetting(containerEl, "fetchTimeoutMs", "网页抓取的逻辑超时时间（毫秒）。");
-		this.buildNumberSetting(containerEl, "aiTimeoutMs", "OpenAI 请求的逻辑超时时间（毫秒）。");
-		this.buildNumberSetting(containerEl, "maxContentTokens", "发送给模型前允许的最大内容 token 估算值。");
+
+		new Setting(containerEl)
+			.setName("Models")
+			.setHeading();
+		this.buildModelSettings(containerEl);
+
+		new Setting(containerEl)
+			.setName("Output")
+			.setHeading();
+		this.buildTextSetting(containerEl, "outputFolder", "Output folder", "Folder for completed notes.");
+		this.buildTextSetting(containerEl, "processingFolder", "Processing folder", "Folder for temporary processing notes.");
+		this.buildTextSetting(containerEl, "failedFolder", "Failed folder", "Folder for failed import notes.");
+		this.buildTextSetting(containerEl, "historyFolder", "History folder", "Folder for visible import history notes.");
+		this.buildTextSetting(containerEl, "defaultLanguage", "Default language", "Language value stored in generated frontmatter.");
+		this.buildNumberSetting(containerEl, "fetchTimeoutMs", "Fetch timeout (ms)", "Logical timeout for webpage fetching.");
+		this.buildNumberSetting(containerEl, "aiTimeoutMs", "AI timeout (ms)", "Logical timeout for model requests.");
+		this.buildNumberSetting(containerEl, "maxContentTokens", "Max content tokens", "Estimated max tokens sent to the model before truncation.");
+
+		new Setting(containerEl)
+			.setName("Fallbacks")
+			.setHeading();
 		this.buildSiteJsonFallbackSetting(containerEl);
 		this.buildReaderFallbackSetting(containerEl);
 		this.buildBrowserRenderFallbackSetting(containerEl);
 
 		new Setting(containerEl)
-			.setName("openNoteAfterCreate")
-			.setDesc("成功转正后自动打开最终笔记。")
+			.setName("Open created note")
+			.setDesc("Open the final note automatically after a successful import.")
 			.addToggle((toggle) => {
 				toggle.setValue(this.plugin.settings.openNoteAfterCreate)
 					.onChange(async (value) => {
@@ -166,8 +180,8 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 	private buildReaderFallbackSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("readerFallbackEnabled")
-			.setDesc("网页直连抓取超时后，改用公开阅读代理 r.jina.ai 获取正文。会把原始 URL 发送给第三方服务，默认关闭。")
+			.setName("Reader fallback")
+			.setDesc("If direct fetch fails, try r.jina.ai reader mode. This sends the source URL to a third-party service. Off by default.")
 			.addToggle((toggle) => {
 				toggle.setValue(this.plugin.settings.readerFallbackEnabled)
 					.onChange(async (value) => {
@@ -179,8 +193,8 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 	private buildSiteJsonFallbackSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("siteJsonFallbackEnabled")
-			.setDesc("对支持的站点优先尝试专用 JSON 接口回退，例如 Discourse 主题页的 .json。默认开启。")
+			.setName("Site JSON fallback")
+			.setDesc("Prefer site-specific JSON endpoints on supported pages, such as Discourse topic `.json` routes. On by default.")
 			.addToggle((toggle) => {
 				toggle.setValue(this.plugin.settings.siteJsonFallbackEnabled)
 					.onChange(async (value) => {
@@ -192,8 +206,8 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 	private buildBrowserRenderFallbackSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("browserRenderFallbackEnabled")
-			.setDesc("当前面几种方式都失败时，尝试使用本地桌面浏览器渲染页面再提取正文。当前仅在桌面 macOS 上可用，可能会短暂打开 Safari，默认关闭。")
+			.setName("Browser render fallback (experimental)")
+			.setDesc("If other methods fail, try desktop browser rendering. This is desktop-only and currently macOS-only. Off by default.")
 			.addToggle((toggle) => {
 				toggle.setValue(this.plugin.settings.browserRenderFallbackEnabled)
 					.onChange(async (value) => {
@@ -207,26 +221,26 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 		const modelOptions = getModelOptions(this.plugin.settings);
 
 		new Setting(containerEl)
-			.setName("model")
-			.setDesc("默认模型。导入弹窗里也可以临时切换，并记住最后一次使用。")
+			.setName("Default model")
+			.setDesc("Default model for new imports. You can still switch per import from the modal.")
 			.addDropdown((dropdown) => {
 				for (const option of modelOptions) {
 					dropdown.addOption(option.id, option.label);
 				}
 
-					dropdown.setValue(this.plugin.settings.model)
-						.onChange(async (value) => {
-							this.plugin.settings.model = value;
-							await this.plugin.saveSettings();
-							this.display();
-						});
-				});
+				dropdown.setValue(this.plugin.settings.model)
+					.onChange(async (value) => {
+						this.plugin.settings.model = value;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+			});
 
 		new Setting(containerEl)
-			.setName("customModels")
-			.setDesc("额外模型 ID，每行一个。会同步出现在设置页和导入弹窗中。")
+			.setName("Custom models")
+			.setDesc("Extra model entries, one per line. These appear in both settings and the import modal.")
 			.addTextArea((textArea) => {
-				textArea.setPlaceholder("gpt-5.1\nmy-compatible-model")
+				textArea.setPlaceholder("Enter one model name per line.")
 					.setValue(formatCustomModelsInput(this.plugin.settings.customModels))
 					.onChange(async (value) => {
 						this.plugin.settings.customModels = parseCustomModelsInput(value);
@@ -241,8 +255,8 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName("modelApiBaseUrls")
-			.setDesc("为特定模型指定单独的 API 地址。每行一个，格式：model-id | https://example.com/v1")
+			.setName("Model-specific API addresses")
+			.setDesc("Set a custom API base URL per model. One per line: model-id | https://example.com/v1")
 			.addTextArea((textArea) => {
 				textArea.setPlaceholder("gpt-5.4 | https://api.example.com/v1\nclaude-sonnet-4 | https://example.com/v1")
 					.setValue(formatModelApiBaseUrlsInput(this.plugin.settings.modelApiBaseUrls))
@@ -257,56 +271,56 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 	private buildApiKeySetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("OpenAI API key")
-			.setDesc("密钥通过系统安全存储保存，部分移动设备可能会触发生物识别或系统认证。")
+			.setName("API key")
+			.setDesc("Stored in Obsidian secret storage. Some mobile devices may prompt for biometric or system authentication.")
 			.addText((text) => {
-				text.setPlaceholder("sk-...")
+				text.setPlaceholder("Example: sk-...")
 					.onChange((value) => {
 						this.secretDraft = value.trim();
 					});
 				text.inputEl.type = "password";
 			})
-			.addButton((button) => {
-				button.setButtonText("Save")
-					.setCta()
-					.onClick(async () => {
-						if (!this.secretDraft) {
-							new Notice("请先输入 OpenAI API key。", 4000);
-							return;
-						}
+				.addButton((button) => {
+					button.setButtonText("Save")
+						.setCta()
+						.onClick(async () => {
+							if (!this.secretDraft) {
+								new Notice("Enter an API key first.", 4000);
+								return;
+							}
 
-						const saved = await writeSecretValue(this.app, this.plugin.settings.openAiSecretName, this.secretDraft);
-						if (!saved) {
-							new Notice("当前环境未暴露可写的 Secret storage 接口。", 5000);
-							return;
-						}
+							const saved = await writeSecretValue(this.app, this.plugin.settings.openAiSecretName, this.secretDraft);
+							if (!saved) {
+								new Notice("Secret storage is not writable in this environment.", 5000);
+								return;
+							}
 
-						this.secretDraft = "";
-						new Notice("OpenAI API key 已保存。", 3000);
-						this.display();
-					});
-			})
+							this.secretDraft = "";
+							new Notice("API key saved.", 3000);
+							this.display();
+						});
+				})
 			.addExtraButton((button) => {
 				button.setIcon("cross")
-					.setTooltip("Clear API key")
-					.onClick(async () => {
-						const removed = await removeSecretValue(this.app, this.plugin.settings.openAiSecretName);
-						if (!removed) {
-							new Notice("当前环境未暴露可写的 Secret storage 接口。", 5000);
-							return;
-						}
+						.setTooltip("Clear API key")
+						.onClick(async () => {
+							const removed = await removeSecretValue(this.app, this.plugin.settings.openAiSecretName);
+							if (!removed) {
+								new Notice("Secret storage is not writable in this environment.", 5000);
+								return;
+							}
 
-						this.secretDraft = "";
-						new Notice("已清除 OpenAI API key。", 3000);
-						this.display();
-					});
-			});
+							this.secretDraft = "";
+							new Notice("API key cleared.", 3000);
+							this.display();
+						});
+				});
 	}
 
 	private buildApiBaseUrlSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("apiBaseUrl")
-			.setDesc("API 地址。可填 OpenAI-compatible 的 /v1 基础地址，或完整 /responses /chat/completions 地址；插件会优先尝试 Responses，再自动兼容 chat/completions。")
+			.setName("Default API base URL")
+			.setDesc("Set a compatible API base URL. Responses is tried first, then chat completions is used as an automatic fallback.")
 			.addText((text) => {
 				text.setPlaceholder(DEFAULT_SETTINGS.apiBaseUrl)
 					.setValue(this.plugin.settings.apiBaseUrl)
@@ -317,20 +331,20 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 			.addButton((button) => {
 				button.setButtonText("Save")
 					.setCta()
-					.onClick(async () => {
-						const nextValue = this.apiBaseUrlDraft || this.plugin.settings.apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl;
-						this.plugin.settings.apiBaseUrl = nextValue;
-						await this.plugin.saveSettings();
-						new Notice(`API 地址已保存：${nextValue}`, 3500);
-						this.display();
-					});
+						.onClick(async () => {
+							const nextValue = this.apiBaseUrlDraft || this.plugin.settings.apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl;
+							this.plugin.settings.apiBaseUrl = nextValue;
+							await this.plugin.saveSettings();
+							new Notice(`API base URL saved: ${nextValue}`, 3500);
+							this.display();
+						});
 				});
 	}
 
 	private buildConfigTomlSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("config.toml")
-			.setDesc("可直接在 Obsidian 里编辑的可见配置文件。导入前会优先读取这份 TOML 覆盖模型和 API 地址。")
+			.setName("Config file path")
+			.setDesc("Path to a visible `config.toml` file in your vault. Runtime imports read this file first and apply model and API URL overrides.")
 			.addText((text) => {
 				text.setPlaceholder(DEFAULT_SETTINGS.configTomlPath)
 					.setValue(this.plugin.settings.configTomlPath)
@@ -350,8 +364,8 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 	private buildConnectionTestSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("连接测试")
-			.setDesc("测试当前生效的模型和接口地址。若 config.toml 有覆盖，这里会优先使用 config.toml，并在需要时自动从 Responses 回退到 chat/completions。")
+			.setName("Test connection")
+			.setDesc("Test the currently effective model and API URL. If `config.toml` overrides are present, they are applied before testing.")
 			.addButton((button) => {
 				button.setButtonText("Test")
 					.setCta()
@@ -365,7 +379,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 							const resolvedApiBaseUrl = resolveModelApiBaseUrl(effectiveSettings, model) || DEFAULT_SETTINGS.apiBaseUrl;
 							const apiKey = (await readSecretValue(this.app, this.plugin.settings.openAiSecretName))?.trim();
 							if (!apiKey) {
-								new Notice("请先保存可用的 API key。", 4000);
+								new Notice("Save an API key before running a connection test.", 4000);
 								return;
 							}
 
@@ -376,10 +390,10 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 								apiBaseUrl: resolvedApiBaseUrl,
 							}, apiKey);
 							const result = await client.testConnection();
-							new Notice(`连接成功：${model} @ ${result.requestUrl}`, 5000);
+							new Notice(`Connection successful: ${model} @ ${result.requestUrl}`, 5000);
 						} catch (error) {
 							const message = error instanceof Error ? error.message : String(error);
-							new Notice(`连接失败：${message}`, 7000);
+							new Notice(`Connection failed: ${message}`, 7000);
 						} finally {
 							button.setDisabled(false);
 							button.setButtonText("Test");
@@ -391,10 +405,11 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 	private buildTextSetting(
 		containerEl: HTMLElement,
 		key: "outputFolder" | "processingFolder" | "failedFolder" | "historyFolder" | "defaultLanguage",
+		name: string,
 		description: string,
 	): void {
 		new Setting(containerEl)
-			.setName(key)
+			.setName(name)
 			.setDesc(description)
 			.addText((text) => {
 				text.setValue(this.plugin.settings[key])
@@ -408,10 +423,11 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 	private buildNumberSetting(
 		containerEl: HTMLElement,
 		key: "fetchTimeoutMs" | "aiTimeoutMs" | "maxContentTokens",
+		name: string,
 		description: string,
 	): void {
 		new Setting(containerEl)
-			.setName(key)
+			.setName(name)
 			.setDesc(description)
 			.addText((text) => {
 				text.inputEl.type = "number";

@@ -71,10 +71,10 @@ export function normalizeRecentImports(entries: unknown): ImportHistoryEntry[] {
 				progressMessage: typeof candidate.progressMessage === "string"
 					? candidate.progressMessage
 					: candidate.status === "complete"
-						? "任务完成"
+						? "Import complete"
 						: candidate.status === "failed"
-							? "任务失败"
-							: "等待开始",
+							? "Import failed"
+							: "Queued",
 				progressUpdatedAt: typeof candidate.progressUpdatedAt === "string" && isValidDateString(candidate.progressUpdatedAt)
 					? candidate.progressUpdatedAt
 					: candidate.submittedAt,
@@ -115,10 +115,10 @@ function dayDiff(now: Date, target: Date): number {
 }
 
 export function groupRecentImports(entries: ImportHistoryEntry[], now: Date = new Date()): ImportHistoryGroup[] {
-	const todayGroup: ImportHistoryGroup = {label: "今天", entries: []};
-	const yesterdayGroup: ImportHistoryGroup = {label: "昨天", entries: []};
-	const weekGroup: ImportHistoryGroup = {label: "近 7 天", entries: []};
-	const olderGroup: ImportHistoryGroup = {label: "更早", entries: []};
+	const todayGroup: ImportHistoryGroup = {label: "Today", entries: []};
+	const yesterdayGroup: ImportHistoryGroup = {label: "Yesterday", entries: []};
+	const weekGroup: ImportHistoryGroup = {label: "Last 7 days", entries: []};
+	const olderGroup: ImportHistoryGroup = {label: "Older", entries: []};
 	const groups: ImportHistoryGroup[] = [todayGroup, yesterdayGroup, weekGroup, olderGroup];
 
 	for (const entry of sortRecent(entries)) {

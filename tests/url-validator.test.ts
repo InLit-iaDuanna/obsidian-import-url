@@ -1,5 +1,6 @@
 import {describe, expect, it, vi} from "vitest";
-import {PDF_PREFLIGHT_MAX_BYTES, PipelineError, UserInputError} from "../src/types";
+import {Fetcher} from "../src/pipeline/fetcher";
+import {PDF_PREFLIGHT_MAX_BYTES, UserInputError} from "../src/types";
 import {parseHttpUrl, validateUrl} from "../src/pipeline/url-validator";
 import {createResponse} from "./helpers";
 
@@ -15,7 +16,7 @@ describe("url-validator", () => {
 				"Content-Type": "application/pdf",
 				"Content-Length": "1024",
 			})),
-		} as any;
+		} as unknown as Fetcher;
 
 		const result = await validateUrl(new URL("https://example.com/download?id=1"), fetcher);
 		expect(result.sourceType).toBe("pdf");
@@ -24,7 +25,7 @@ describe("url-validator", () => {
 	it("keeps .pdf URLs as PDF when HEAD fails", async () => {
 		const fetcher = {
 			headUrl: vi.fn().mockRejectedValue(new Error("405")),
-		} as any;
+		} as unknown as Fetcher;
 
 		const result = await validateUrl(new URL("https://example.com/file.pdf"), fetcher);
 		expect(result.sourceType).toBe("pdf");
@@ -36,7 +37,7 @@ describe("url-validator", () => {
 				"Content-Type": "application/pdf",
 				"Content-Length": String(PDF_PREFLIGHT_MAX_BYTES + 1),
 			})),
-		} as any;
+		} as unknown as Fetcher;
 
 		await expect(validateUrl(new URL("https://example.com/huge.pdf"), fetcher)).rejects.toMatchObject({
 			failureInfo: {

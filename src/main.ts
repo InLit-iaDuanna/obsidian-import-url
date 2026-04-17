@@ -35,16 +35,16 @@ export default class ImportUrlPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "import-url",
-			name: "Import URL",
+			id: "import",
+			name: "Import from URL",
 			callback: () => {
 				void this.openImportModal();
 			},
 		});
 
 		this.addCommand({
-			id: "open-import-url-config",
-			name: "Open Import URL config.toml",
+			id: "open-config",
+			name: "Open config file",
 			callback: () => {
 				void this.openConfigToml();
 			},
@@ -58,7 +58,7 @@ export default class ImportUrlPlugin extends Plugin {
 			await this.ensureConfigTomlReady();
 		} catch (error) {
 			console.error("[import-url] failed to initialize config.toml", error);
-			new Notice("初始化 config.toml 失败，插件将继续加载。请检查设置中的路径。", 7000);
+			new Notice("Failed to initialize config.toml. The plugin will continue loading.", 7000);
 		}
 	}
 
@@ -85,7 +85,7 @@ export default class ImportUrlPlugin extends Plugin {
 		const configPath = this.settings.configTomlPath.trim() || DEFAULT_SETTINGS.configTomlPath;
 		const file = this.app.vault.getAbstractFileByPath(configPath) as TFile | null;
 		if (!file) {
-			new Notice("config.toml 创建失败，请检查路径设置。", 5000);
+			new Notice("Failed to create config.toml. Check the configured path.", 5000);
 			return;
 		}
 
@@ -99,7 +99,7 @@ export default class ImportUrlPlugin extends Plugin {
 		} catch (error) {
 			console.error("[import-url] failed to read config.toml", error);
 			this.effectiveSettings = applyConfigTomlOverrides(this.settings, null);
-			new Notice("config.toml 解析失败，已回退到设置页配置。", 6000);
+			new Notice("Failed to parse config.toml. Using values from the settings tab.", 6000);
 		}
 
 		return this.effectiveSettings;
@@ -127,23 +127,23 @@ export default class ImportUrlPlugin extends Plugin {
 			const resolvedApiBaseUrl = resolveModelApiBaseUrl(effectiveSettings, activeModel) || effectiveSettings.apiBaseUrl;
 
 			if (this.jobRunner.isBusy()) {
-				throw new UserInputError("已有导入任务正在进行，请稍候。");
+				throw new UserInputError("Another import is already running. Please wait.");
 			}
 
 			if (activeModel !== this.settings.model) {
 				this.settings.model = activeModel;
 			}
 
-				historyEntry = await this.createHistoryEntry(normalizedUrl, activeModel, resolvedApiBaseUrl);
-				await this.saveSettings();
+			historyEntry = await this.createHistoryEntry(normalizedUrl, activeModel, resolvedApiBaseUrl);
+			await this.saveSettings();
 
-				const result = await this.jobRunner.run({
-					rawUrl: normalizedUrl,
-					model: activeModel,
-					apiBaseUrl: resolvedApiBaseUrl,
-					historyId: historyEntry.id,
-				});
-				await this.applyJobResult(historyEntry.id, result);
+			const result = await this.jobRunner.run({
+				rawUrl: normalizedUrl,
+				model: activeModel,
+				apiBaseUrl: resolvedApiBaseUrl,
+				historyId: historyEntry.id,
+			});
+			await this.applyJobResult(historyEntry.id, result);
 		} catch (error) {
 			if (error instanceof UserInputError) {
 				if (historyEntry) {
@@ -154,22 +154,22 @@ export default class ImportUrlPlugin extends Plugin {
 				return;
 			}
 
-				if (historyEntry) {
-					let updatedEntry: ImportHistoryEntry | null = null;
-					this.settings.recentImports = updateRecentImport(this.settings.recentImports, historyEntry.id, (entry) => ({
-						...(updatedEntry = {
-							...entry,
-							status: "failed",
-							errorMessage: error instanceof Error ? error.message : "未知错误",
-						}),
-					}));
-					await this.saveSettings();
-					if (updatedEntry) {
-						await this.writeVisibleHistoryNote(updatedEntry);
-					}
+			if (historyEntry) {
+				let updatedEntry: ImportHistoryEntry | null = null;
+				this.settings.recentImports = updateRecentImport(this.settings.recentImports, historyEntry.id, (entry) => ({
+					...(updatedEntry = {
+						...entry,
+						status: "failed",
+						errorMessage: error instanceof Error ? error.message : "Unknown error",
+					}),
+				}));
+				await this.saveSettings();
+				if (updatedEntry) {
+					await this.writeVisibleHistoryNote(updatedEntry);
 				}
+			}
 			console.error("[import-url] unexpected import failure", error);
-			new Notice("导入失败，已尽量保留处理中或失败笔记。", 6000);
+			new Notice("Import failed. Processing or failed notes were kept when possible.", 6000);
 		}
 	}
 
@@ -188,7 +188,7 @@ export default class ImportUrlPlugin extends Plugin {
 			return await this.loadData() as Partial<ImportUrlPluginSettings> | null;
 		} catch (error) {
 			console.error("[import-url] failed to read data.json, falling back to defaults", error);
-			new Notice("检测到插件设置文件异常，已自动回退默认设置。", 7000);
+			new Notice("Settings file is invalid. Restored defaults automatically.", 7000);
 
 			this.settings = Object.assign({}, DEFAULT_SETTINGS);
 			try {
@@ -217,7 +217,7 @@ export default class ImportUrlPlugin extends Plugin {
 			status: "processing",
 			progressStage: "queued",
 			progressPercent: 0,
-			progressMessage: "等待开始",
+			progressMessage: "Queued",
 			progressUpdatedAt: new Date().toISOString(),
 		};
 
@@ -239,7 +239,7 @@ export default class ImportUrlPlugin extends Plugin {
 					errorMessage: result.failure?.errorMessage,
 					progressStage: result.status === "complete" ? "complete" : "failed",
 					progressPercent: 100,
-					progressMessage: result.status === "complete" ? "任务完成" : (result.failure?.errorMessage ?? "任务失败"),
+					progressMessage: result.status === "complete" ? "Import complete" : (result.failure?.errorMessage ?? "Import failed"),
 					progressUpdatedAt: new Date().toISOString(),
 				}),
 			}));

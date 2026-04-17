@@ -29,12 +29,20 @@ Reload Obsidian, then enable **Settings → Community plugins → Import URL**.
 
 ## Usage
 
-1. Open the command palette and run `Import URL`, or click the ribbon icon.
+1. Open the command palette and run `Import from URL` (`import`), or click the ribbon icon.
 2. Paste a public URL.
 3. Choose a model.
 4. Wait for the plugin to create the final note and update the import history.
+5. (Optional) Run `Open config file` (`open-config`) to edit `config.toml` directly in your vault.
 
 ## Configuration
+
+Settings are grouped into `Connection`, `Models`, `Output`, and `Fallbacks`.
+
+Runtime precedence remains:
+
+- stored plugin settings as baseline
+- `config.toml` overrides applied at runtime before modal open/import start
 
 The plugin supports:
 
@@ -43,7 +51,14 @@ The plugin supports:
 - extra custom model IDs
 - per-model API base URL overrides
 - output, processing, failed, and history folders
-- optional fallback fetchers
+- optional fallback fetchers with clear disclosure
+
+## Platform support
+
+- Core import flow is compatible with desktop and mobile.
+- `Site JSON fallback` and `Reader fallback` behavior is unchanged.
+- `Browser render fallback (experimental)` is disabled by default and desktop-only (currently macOS-only).
+- On unsupported environments, browser-render fallback fails clearly without touching desktop-only APIs.
 
 ## Development
 
@@ -80,3 +95,5 @@ For an Obsidian release, attach these files to the GitHub release:
 - `styles.css`
 
 Make sure the Git tag exactly matches the plugin version in `manifest.json` without a leading `v`.
+
+Source of truth stays under `src/`; generated artifacts (such as `main.js`) are build outputs.

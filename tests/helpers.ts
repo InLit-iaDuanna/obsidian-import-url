@@ -1,3 +1,5 @@
+import {App, RequestUrlResponse} from "obsidian";
+
 export interface FakeFile {
 	path: string;
 	content: string;
@@ -82,20 +84,17 @@ export class FakeWorkspace {
 	}
 }
 
-export function createFakeApp(): {app: any; vault: FakeVault; workspace: FakeWorkspace} {
+export function createFakeApp(): {app: App; vault: FakeVault; workspace: FakeWorkspace} {
 	const vault = new FakeVault();
 	const workspace = new FakeWorkspace();
 	return {
-		app: {
-			vault,
-			workspace,
-		},
+		app: {vault, workspace} as unknown as App,
 		vault,
 		workspace,
 	};
 }
 
-export function createResponse(status: number, text: string, headers: Record<string, string> = {}): any {
+export function createResponse(status: number, text: string, headers: Record<string, string> = {}): RequestUrlResponse {
 	let parsedJson: unknown = null;
 	try {
 		parsedJson = JSON.parse(text);
@@ -109,5 +108,5 @@ export function createResponse(status: number, text: string, headers: Record<str
 		headers,
 		arrayBuffer: new ArrayBuffer(0),
 		json: parsedJson,
-	};
+	} as RequestUrlResponse;
 }

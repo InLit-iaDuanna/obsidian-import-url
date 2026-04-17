@@ -22,18 +22,18 @@ function parseContentLength(value?: string): number | undefined {
 export function parseHttpUrl(rawUrl: string): URL {
 	const trimmed = rawUrl.trim();
 	if (!trimmed) {
-		throw new UserInputError("请输入合法的 http(s) URL。");
+		throw new UserInputError("Enter a valid HTTP(S) URL.");
 	}
 
 	let url: URL;
 	try {
 		url = new URL(trimmed);
 	} catch {
-		throw new UserInputError("请输入合法的 http(s) URL。");
+		throw new UserInputError("Enter a valid HTTP(S) URL.");
 	}
 
 	if (url.protocol !== "http:" && url.protocol !== "https:") {
-		throw new UserInputError("仅支持 http 或 https URL。");
+		throw new UserInputError("Only HTTP and HTTPS URLs are supported.");
 	}
 
 	return url;

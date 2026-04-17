@@ -1,5 +1,6 @@
 import {App, Notice, TFile} from "obsidian";
 import {AiClient} from "./ai-client";
+import {BrowserRenderFallbackUnavailableError} from "./browser-render-fallback";
 import {extractSiteJsonContent, extractWebpageContent, getSiteJsonFallbackUrl, truncateMarkdown} from "./extractor";
 import {Fetcher, TimeoutError} from "./fetcher";
 import {validateUrl, parseHttpUrl} from "./url-validator";
@@ -139,7 +140,7 @@ export class JobRunner {
 
 	async run(options: string | JobRunOptions): Promise<JobRunResult> {
 		if (this.activeRun) {
-			throw new UserInputError("已有导入任务正在进行，请稍候。");
+			throw new UserInputError("Another import is already running. Please wait.");
 		}
 
 		const task = this.runInternal(typeof options === "string" ? {rawUrl: options} : options);
@@ -166,7 +167,7 @@ export class JobRunner {
 			model: settings.model,
 			stage: "queued",
 			progressPercent: 5,
-			message: "任务已创建，等待预检",
+			message: "Import queued. Waiting for preflight checks.",
 			sourceType: sourceTypeGuess,
 		});
 
@@ -190,7 +191,7 @@ export class JobRunner {
 				model: settings.model,
 				stage: "preflight",
 				progressPercent: 15,
-				message: "正在检查链接和文件类型",
+				message: "Checking URL and source type.",
 				sourceType,
 				title: sourceTitle,
 			});
@@ -205,13 +206,13 @@ export class JobRunner {
 			let upstreamWarnings: string[] = [];
 
 			if (sourceType === "webpage") {
-				new Notice("正在抓取页面内容…", 3000);
+				new Notice("Fetching webpage content...", 3000);
 				await this.emitProgress(options, {
 					url: validated.url,
 					model: settings.model,
 					stage: "fetching",
 					progressPercent: 32,
-					message: "正在抓取网页内容",
+					message: "Fetching webpage content.",
 					sourceType,
 					title: sourceTitle,
 				});
@@ -225,7 +226,7 @@ export class JobRunner {
 					model: settings.model,
 					stage: "extracting",
 					progressPercent: 48,
-					message: "正在抽取正文并转换 Markdown",
+					message: "Extracting article content and converting to Markdown.",
 					sourceType,
 					title: sourceTitle,
 				});
@@ -236,23 +237,23 @@ export class JobRunner {
 					...extracted.warnings,
 					...truncated.warnings,
 						...(webpage.usedReaderFallback
-							? ["原网页直连抓取失败，已通过公开阅读代理 r.jina.ai 获取正文；该第三方服务会接收原始 URL。"]
+							? ["Direct webpage fetch failed. Content was fetched through r.jina.ai reader fallback, which receives the source URL."]
 							: []),
 						...(webpage.usedSiteJsonFallback
-							? ["原网页 HTML 抓取失败，已改用站点专用 JSON 接口提取正文。"]
+							? ["HTML fetch failed. Content was extracted from a site-specific JSON endpoint."]
 							: []),
 						...(webpage.usedBrowserRenderFallback
-							? ["原网页直连和常规回退均失败，已通过本地桌面浏览器渲染页面后提取正文。"]
+							? ["Direct and standard fallbacks failed. Content was extracted from desktop browser-rendered HTML."]
 							: []),
 					]);
 
-				new Notice("正在 AI 整理，请稍候…", 3000);
+				new Notice("Running AI summary...", 3000);
 				await this.emitProgress(options, {
 					url: validated.url,
 					model: settings.model,
 					stage: "ai_call",
 					progressPercent: 72,
-					message: "正在调用模型整理内容",
+					message: "Calling model to organize content.",
 					sourceType,
 					title: sourceTitle,
 				});
@@ -267,13 +268,13 @@ export class JobRunner {
 					warnings: upstreamWarnings,
 				});
 			} else {
-				new Notice("正在 AI 整理，请稍候…", 3000);
+				new Notice("Running AI summary...", 3000);
 				await this.emitProgress(options, {
 					url: validated.url,
 					model: settings.model,
 					stage: "ai_call",
 					progressPercent: 58,
-					message: "正在调用模型读取并整理 PDF",
+					message: "Calling model to read and organize the PDF.",
 					sourceType,
 					title: sourceTitle,
 				});
@@ -300,7 +301,7 @@ export class JobRunner {
 				model: settings.model,
 				stage: "saving",
 				progressPercent: 90,
-				message: "正在写入最终笔记",
+				message: "Writing final note.",
 				sourceType,
 				title: finalTitle,
 			});
@@ -331,13 +332,13 @@ export class JobRunner {
 				await this.app.workspace.getLeaf(true).openFile(workingFile);
 			}
 
-			new Notice(`笔记已生成：${finalTitle}`, 5000);
+			new Notice(`Note created: ${finalTitle}`, 5000);
 			await this.emitProgress(options, {
 				url: validated.url,
 				model: settings.model,
 				stage: "complete",
 				progressPercent: 100,
-				message: "任务完成",
+				message: "Import complete.",
 				sourceType,
 				title: finalTitle,
 			});
@@ -578,29 +579,37 @@ export class JobRunner {
 				}
 			}
 
-			if (options.browserRenderFallbackEnabled) {
-				try {
-					const browserResponse = await fetcher.getBrowserRenderedHtml(url);
-					if (browserResponse.status >= 400) {
-						throw new PipelineError({
-							stage: "fetch",
-							httpStatus: browserResponse.status,
-							errorMessage: `Browser render fallback failed (${browserResponse.status}).`,
-							suggestion: "本地浏览器渲染回退失败，请关闭该回退或改用其它抓取方式。",
-						});
-					}
+				if (options.browserRenderFallbackEnabled) {
+					try {
+						const browserResponse = await fetcher.getBrowserRenderedHtml(url);
+						if (browserResponse.status >= 400) {
+							throw new PipelineError({
+								stage: "fetch",
+								httpStatus: browserResponse.status,
+								errorMessage: `Browser render fallback failed (${browserResponse.status}).`,
+								suggestion: "Browser render fallback failed. Disable this fallback or use another fetch path.",
+							});
+						}
 
 					return {
 						content: browserResponse.text,
 						extracted: undefined,
 						usedReaderFallback: false,
 						usedSiteJsonFallback: false,
-						usedBrowserRenderFallback: true,
-					};
-				} catch (browserError) {
-					fallbackErrors.push(browserError);
+							usedBrowserRenderFallback: true,
+						};
+					} catch (browserError) {
+						if (browserError instanceof BrowserRenderFallbackUnavailableError) {
+							fallbackErrors.push(new PipelineError({
+								stage: "fetch",
+								errorMessage: browserError.message,
+								suggestion: "Browser render fallback is experimental and desktop-only (macOS). Disable this fallback on unsupported devices.",
+							}));
+							throw fallbackErrors[fallbackErrors.length - 1];
+						}
+						fallbackErrors.push(browserError);
+					}
 				}
-			}
 
 			throw fallbackErrors[fallbackErrors.length - 1] ?? error;
 		}

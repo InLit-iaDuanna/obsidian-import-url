@@ -21,10 +21,31 @@ export class Notice {
 
 export class Plugin {
 	app: App;
+	readonly commands: Array<{id: string; name: string; callback: () => void}> = [];
+	readonly settingTabs: PluginSettingTab[] = [];
+	readonly ribbonIcons: Array<{icon: string; title: string; callback: () => void}> = [];
 
 	constructor(app: App) {
 		this.app = app;
 	}
+
+	addRibbonIcon(icon: string, title: string, callback: () => void): void {
+		this.ribbonIcons.push({icon, title, callback});
+	}
+
+	addCommand(command: {id: string; name: string; callback: () => void}): void {
+		this.commands.push(command);
+	}
+
+	addSettingTab(tab: PluginSettingTab): void {
+		this.settingTabs.push(tab);
+	}
+
+	async loadData(): Promise<unknown> {
+		return null;
+	}
+
+	async saveData(_data: unknown): Promise<void> {}
 }
 
 export class PluginSettingTab {
@@ -39,9 +60,26 @@ export class PluginSettingTab {
 }
 
 export class Setting {
-	constructor(public containerEl: HTMLElement) {}
-	setName(): this { return this; }
-	setDesc(): this { return this; }
+	static instances: Setting[] = [];
+	name = "";
+	description = "";
+	isHeading = false;
+
+	constructor(public containerEl: HTMLElement) {
+		Setting.instances.push(this);
+	}
+	setName(name: string): this {
+		this.name = name;
+		return this;
+	}
+	setDesc(desc: string | DocumentFragment): this {
+		this.description = typeof desc === "string" ? desc : desc.textContent ?? "";
+		return this;
+	}
+	setHeading(): this {
+		this.isHeading = true;
+		return this;
+	}
 	addText(callback: (component: TextComponent) => void): this {
 		callback(new TextComponent(this.containerEl));
 		return this;
@@ -71,14 +109,26 @@ export class Setting {
 export class Modal {
 	contentEl = document.createElement("div");
 	constructor(public app: App) {}
-	open(): void {}
-	close(): void {}
+	open(): void {
+		const self = this as unknown as {onOpen?: () => void};
+		if (typeof self.onOpen === "function") {
+			self.onOpen();
+		}
+	}
+	close(): void {
+		const self = this as unknown as {onClose?: () => void};
+		if (typeof self.onClose === "function") {
+			self.onClose();
+		}
+	}
 }
 
 export class TextComponent {
 	inputEl = document.createElement("input");
 
-	constructor(_containerEl?: HTMLElement) {}
+	constructor(containerEl?: HTMLElement) {
+		containerEl?.appendChild(this.inputEl);
+	}
 	setPlaceholder(): this { return this; }
 	setValue(value: string): this {
 		this.inputEl.value = value;
@@ -90,18 +140,58 @@ export class TextComponent {
 }
 
 export class ButtonComponent {
-	constructor(_containerEl?: HTMLElement) {}
-	setButtonText(): this { return this; }
+	private clickHandler: (() => void) | null = null;
+	readonly buttonEl = document.createElement("button");
+
+	constructor(containerEl?: HTMLElement) {
+		containerEl?.appendChild(this.buttonEl);
+	}
+	setButtonText(label: string): this {
+		this.buttonEl.textContent = label;
+		return this;
+	}
 	setCta(): this { return this; }
-	onClick(): this { return this; }
-	setDisabled(): this { return this; }
+	onClick(callback: () => void): this {
+		this.clickHandler = callback;
+		this.buttonEl.onclick = callback;
+		return this;
+	}
+	setDisabled(disabled: boolean): this {
+		this.buttonEl.disabled = disabled;
+		return this;
+	}
+	setIcon(): this { return this; }
+	setTooltip(): this { return this; }
+	click(): void {
+		this.clickHandler?.();
+	}
 }
 
 export class ToggleComponent {
-	constructor(_containerEl?: HTMLElement) {}
+	readonly toggleEl = document.createElement("input");
+	constructor(containerEl?: HTMLElement) {
+		this.toggleEl.type = "checkbox";
+		containerEl?.appendChild(this.toggleEl);
+	}
 	setValue(): this { return this; }
 	onChange(): this { return this; }
 }
+
+export const Platform = {
+	isDesktop: true,
+	isMobile: false,
+	isDesktopApp: true,
+	isMobileApp: false,
+	isIosApp: false,
+	isAndroidApp: false,
+	isPhone: false,
+	isTablet: false,
+	isMacOS: true,
+	isWin: false,
+	isLinux: false,
+	isSafari: false,
+	resourcePathPrefix: "",
+};
 
 export function htmlToMarkdown(html: string): string {
 	return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -110,7 +200,9 @@ export function htmlToMarkdown(html: string): string {
 export class DropdownComponent {
 	selectEl = document.createElement("select");
 
-	constructor(_containerEl?: HTMLElement) {}
+	constructor(containerEl?: HTMLElement) {
+		containerEl?.appendChild(this.selectEl);
+	}
 	addOption(value: string, label: string): this {
 		const optionEl = document.createElement("option");
 		optionEl.value = value;
@@ -128,7 +220,9 @@ export class DropdownComponent {
 export class TextAreaComponent {
 	inputEl = document.createElement("textarea");
 
-	constructor(_containerEl?: HTMLElement) {}
+	constructor(containerEl?: HTMLElement) {
+		containerEl?.appendChild(this.inputEl);
+	}
 	setPlaceholder(): this { return this; }
 	setValue(value: string): this {
 		this.inputEl.value = value;

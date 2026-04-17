@@ -1,7 +1,9 @@
 import {Readability} from "@mozilla/readability";
+import {RequestUrlResponse} from "obsidian";
 import {describe, expect, it, vi} from "vitest";
+import {AiClient} from "../src/pipeline/ai-client";
 import {JobRunner} from "../src/pipeline/job-runner";
-import {TimeoutError} from "../src/pipeline/fetcher";
+import {Fetcher, TimeoutError} from "../src/pipeline/fetcher";
 import {DEFAULT_SETTINGS} from "../src/settings";
 import {UserInputError} from "../src/types";
 import {createFakeApp, createResponse} from "./helpers";
@@ -30,14 +32,14 @@ function createSettings() {
 describe("job-runner", () => {
 	it("enforces a single-flight lock", async () => {
 		const {app} = createFakeApp();
-		let resolveGetText!: (value: any) => void;
-		const getTextPromise = new Promise((resolve) => {
+		let resolveGetText!: (value: RequestUrlResponse) => void;
+		const getTextPromise = new Promise<RequestUrlResponse>((resolve) => {
 			resolveGetText = resolve;
 		});
 		const fetcher = {
 			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
 			getTextUrl: vi.fn().mockReturnValue(getTextPromise),
-		} as any;
+		} as unknown as Fetcher;
 
 		const runner = new JobRunner({
 			app,
@@ -50,7 +52,7 @@ describe("job-runner", () => {
 				createAiClient: () => ({
 					digestWebpage: vi.fn().mockResolvedValue(sampleDigest),
 					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
-				}) as any,
+				}) as unknown as AiClient,
 			},
 		});
 
@@ -70,7 +72,7 @@ describe("job-runner", () => {
 				"<html><head><title>Source Title</title></head><body><article><p>正文</p></article></body></html>",
 				{"content-type": "text/html"},
 			)),
-		} as any;
+		} as unknown as Fetcher;
 
 		const runner = new JobRunner({
 			app,
@@ -83,7 +85,7 @@ describe("job-runner", () => {
 				createAiClient: () => ({
 					digestWebpage: vi.fn().mockResolvedValue(sampleDigest),
 					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
-				}) as any,
+				}) as unknown as AiClient,
 			},
 		});
 
@@ -106,7 +108,7 @@ describe("job-runner", () => {
 				"<html><body><main><p>Fallback 正文</p></main></body></html>",
 				{"content-type": "text/html"},
 			)),
-		} as any;
+		} as unknown as Fetcher;
 
 		const runner = new JobRunner({
 			app,
@@ -117,12 +119,12 @@ describe("job-runner", () => {
 				randomSuffix: () => "beef",
 				createFetcher: () => fetcher,
 				createAiClient: () => ({
-					digestWebpage: vi.fn().mockImplementation(async ({markdown}) => {
+					digestWebpage: vi.fn().mockImplementation(async ({markdown}: {markdown: string}) => {
 						capturedMarkdown = markdown;
 						return sampleDigest;
 					}),
 					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
-				}) as any,
+				}) as unknown as AiClient,
 			},
 		});
 
@@ -134,24 +136,25 @@ describe("job-runner", () => {
 
 	it("uses reader fallback when webpage fetching times out and the fallback is enabled", async () => {
 		const {app, vault} = createFakeApp();
+		const getReaderTextUrl = vi.fn().mockResolvedValue(createResponse(
+			200,
+			[
+				"Title: Reader Title",
+				"",
+				"URL Source: https://example.com/article",
+				"",
+				"Markdown Content:",
+				"# Reader markdown",
+				"",
+				"正文段落",
+			].join("\n"),
+			{"content-type": "text/plain"},
+		));
 		const fetcher = {
 			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
 			getTextUrl: vi.fn().mockRejectedValue(new TimeoutError("fetch", "GET request timed out after 30000ms.")),
-			getReaderTextUrl: vi.fn().mockResolvedValue(createResponse(
-				200,
-				[
-					"Title: Reader Title",
-					"",
-					"URL Source: https://example.com/article",
-					"",
-					"Markdown Content:",
-					"# Reader markdown",
-					"",
-					"正文段落",
-				].join("\n"),
-				{"content-type": "text/plain"},
-			)),
-		} as any;
+			getReaderTextUrl,
+		} as unknown as Fetcher;
 
 		const runner = new JobRunner({
 			app,
@@ -167,46 +170,47 @@ describe("job-runner", () => {
 				createAiClient: () => ({
 					digestWebpage: vi.fn().mockResolvedValue(sampleDigest),
 					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
-				}) as any,
+				}) as unknown as AiClient,
 			},
 		});
 
 		await runner.run("https://example.com/article");
 
-		expect(fetcher.getReaderTextUrl).toHaveBeenCalledWith("https://example.com/article");
+		expect(getReaderTextUrl).toHaveBeenCalledWith("https://example.com/article");
 		const content = vault.read("Inbox/Clippings/2026-04-14 0841 - 整理标题.md");
-		expect(content).toContain("原网页直连抓取失败，已通过公开阅读代理 r.jina.ai 获取正文");
+		expect(content).toContain("Direct webpage fetch failed. Content was fetched through r.jina.ai reader fallback");
 	});
 
 	it("uses site JSON fallback for discourse-style topic pages", async () => {
 		const {app, vault} = createFakeApp();
+		const getJsonUrl = vi.fn().mockResolvedValue(createResponse(
+			200,
+			JSON.stringify({
+				title: "Discourse Title",
+				post_stream: {
+					posts: [
+						{
+							post_number: 1,
+							username: "alice",
+							name: "Alice",
+							cooked: "<p>首楼正文</p>",
+						},
+						{
+							post_number: 2,
+							username: "bob",
+							name: "Bob",
+							cooked: "<p>回复内容</p>",
+						},
+					],
+				},
+			}),
+			{"content-type": "application/json"},
+		));
 		const fetcher = {
 			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
 			getTextUrl: vi.fn().mockRejectedValue(new TimeoutError("fetch", "GET request timed out after 30000ms.")),
-			getJsonUrl: vi.fn().mockResolvedValue(createResponse(
-				200,
-				JSON.stringify({
-					title: "Discourse Title",
-					post_stream: {
-						posts: [
-							{
-								post_number: 1,
-								username: "alice",
-								name: "Alice",
-								cooked: "<p>首楼正文</p>",
-							},
-							{
-								post_number: 2,
-								username: "bob",
-								name: "Bob",
-								cooked: "<p>回复内容</p>",
-							},
-						],
-					},
-				}),
-				{"content-type": "application/json"},
-			)),
-		} as any;
+			getJsonUrl,
+		} as unknown as Fetcher;
 
 		const runner = new JobRunner({
 			app,
@@ -219,20 +223,37 @@ describe("job-runner", () => {
 				createAiClient: () => ({
 					digestWebpage: vi.fn().mockResolvedValue(sampleDigest),
 					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
-				}) as any,
+				}) as unknown as AiClient,
 			},
 		});
 
 		await runner.run("https://linux.do/t/topic/1782304");
 
-		expect(fetcher.getJsonUrl).toHaveBeenCalledWith("https://linux.do/t/topic/1782304.json");
+		expect(getJsonUrl).toHaveBeenCalledWith("https://linux.do/t/topic/1782304.json");
 		const content = vault.read("Inbox/Clippings/2026-04-14 0930 - 整理标题.md");
-		expect(content).toContain("原网页 HTML 抓取失败，已改用站点专用 JSON 接口提取正文");
+		expect(content).toContain("HTML fetch failed. Content was extracted from a site-specific JSON endpoint");
 	});
 
 	it("prefers site JSON for discourse pages even when HTML fetch succeeds", async () => {
 		const {app} = createFakeApp();
 		let capturedMarkdown = "";
+		const getJsonUrl = vi.fn().mockResolvedValue(createResponse(
+			200,
+			JSON.stringify({
+				title: "Discourse Title",
+				post_stream: {
+					posts: [
+						{
+							post_number: 1,
+							username: "alice",
+							name: "Alice",
+							cooked: "<p>首楼正文</p>",
+						},
+					],
+				},
+			}),
+			{"content-type": "application/json"},
+		));
 		const fetcher = {
 			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
 			getTextUrl: vi.fn().mockResolvedValue(createResponse(
@@ -246,24 +267,8 @@ describe("job-runner", () => {
 				].join(""),
 				{"content-type": "text/html"},
 			)),
-			getJsonUrl: vi.fn().mockResolvedValue(createResponse(
-				200,
-				JSON.stringify({
-					title: "Discourse Title",
-					post_stream: {
-						posts: [
-							{
-								post_number: 1,
-								username: "alice",
-								name: "Alice",
-								cooked: "<p>首楼正文</p>",
-							},
-						],
-					},
-				}),
-				{"content-type": "application/json"},
-			)),
-		} as any;
+			getJsonUrl,
+		} as unknown as Fetcher;
 
 		const runner = new JobRunner({
 			app,
@@ -274,35 +279,36 @@ describe("job-runner", () => {
 				randomSuffix: () => "beef",
 				createFetcher: () => fetcher,
 				createAiClient: () => ({
-					digestWebpage: vi.fn().mockImplementation(async ({markdown}) => {
+					digestWebpage: vi.fn().mockImplementation(async ({markdown}: {markdown: string}) => {
 						capturedMarkdown = markdown;
 						return sampleDigest;
 					}),
 					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
-				}) as any,
+				}) as unknown as AiClient,
 			},
 		});
 
 		await runner.run("https://linux.do/t/topic/1782304");
 
-		expect(fetcher.getJsonUrl).toHaveBeenCalledWith("https://linux.do/t/topic/1782304.json");
+		expect(getJsonUrl).toHaveBeenCalledWith("https://linux.do/t/topic/1782304.json");
 		expect(capturedMarkdown).toContain("首楼正文");
 		expect(capturedMarkdown).not.toContain("STRICTLY PROHIBITS");
 	});
 
 	it("uses browser render fallback after other fetch paths fail", async () => {
 		const {app, vault} = createFakeApp();
+		const getBrowserRenderedHtml = vi.fn().mockResolvedValue(createResponse(
+			200,
+			"<html><head><title>Rendered Title</title></head><body><article><p>渲染正文</p></article></body></html>",
+			{"content-type": "text/html"},
+		));
 		const fetcher = {
 			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
 			getTextUrl: vi.fn().mockRejectedValue(new TimeoutError("fetch", "GET request timed out after 30000ms.")),
 			getJsonUrl: vi.fn().mockRejectedValue(new TimeoutError("fetch", "GET request timed out after 30000ms.")),
 			getReaderTextUrl: vi.fn().mockRejectedValue(new TimeoutError("fetch", "GET request timed out after 30000ms.")),
-			getBrowserRenderedHtml: vi.fn().mockResolvedValue(createResponse(
-				200,
-				"<html><head><title>Rendered Title</title></head><body><article><p>渲染正文</p></article></body></html>",
-				{"content-type": "text/html"},
-			)),
-		} as any;
+			getBrowserRenderedHtml,
+		} as unknown as Fetcher;
 
 		const runner = new JobRunner({
 			app,
@@ -319,15 +325,15 @@ describe("job-runner", () => {
 				createAiClient: () => ({
 					digestWebpage: vi.fn().mockResolvedValue(sampleDigest),
 					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
-				}) as any,
+				}) as unknown as AiClient,
 			},
 		});
 
 		await runner.run("https://example.com/rendered");
 
-		expect(fetcher.getBrowserRenderedHtml).toHaveBeenCalledWith("https://example.com/rendered");
+		expect(getBrowserRenderedHtml).toHaveBeenCalledWith("https://example.com/rendered");
 		const content = vault.read("Inbox/Clippings/2026-04-14 0931 - 整理标题.md");
-		expect(content).toContain("已通过本地桌面浏览器渲染页面后提取正文");
+		expect(content).toContain("Direct and standard fallbacks failed. Content was extracted from desktop browser-rendered HTML");
 	});
 
 	it("appends the fixed suffix when final filenames collide", async () => {
@@ -339,7 +345,7 @@ describe("job-runner", () => {
 				"<html><body><article><p>正文</p></article></body></html>",
 				{"content-type": "text/html"},
 			)),
-		} as any;
+		} as unknown as Fetcher;
 
 		const makeRunner = () => new JobRunner({
 			app,
@@ -352,7 +358,7 @@ describe("job-runner", () => {
 				createAiClient: () => ({
 					digestWebpage: vi.fn().mockResolvedValue(sampleDigest),
 					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
-				}) as any,
+				}) as unknown as AiClient,
 			},
 		});
 
@@ -371,7 +377,7 @@ describe("job-runner", () => {
 				"content-type": "application/pdf",
 				"content-length": String(60 * 1024 * 1024),
 			})),
-		} as any;
+		} as unknown as Fetcher;
 
 		const runner = new JobRunner({
 			app,
@@ -399,7 +405,7 @@ describe("job-runner", () => {
 				"<html><body><article><p>正文</p></article></body></html>",
 				{"content-type": "text/html"},
 			)),
-		} as any;
+		} as unknown as Fetcher;
 
 		const runner = new JobRunner({
 			app,
@@ -433,7 +439,7 @@ describe("job-runner", () => {
 				400,
 				JSON.stringify({error: {message: "could not download pdf (403)"}}),
 			)),
-		} as any;
+		} as unknown as Fetcher;
 
 		const runner = new JobRunner({
 			app,
@@ -493,7 +499,7 @@ describe("job-runner", () => {
 				{"content-type": "text/html"},
 			)),
 			postJson: vi.fn().mockResolvedValue(createResponse(200, responseText)),
-		} as any;
+		} as unknown as Fetcher;
 
 		const runner = new JobRunner({
 			app,

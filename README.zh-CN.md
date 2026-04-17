@@ -29,12 +29,20 @@ Import URL 是一个 Obsidian 社区插件，可以把公开网页或直链 PDF 
 
 ## 使用方法
 
-1. 打开命令面板，执行 `Import URL`，或者点击侧边栏图标。
+1. 打开命令面板，执行 `Import from URL`（命令 ID：`import`），或点击侧边栏图标。
 2. 粘贴一个公开 URL。
 3. 选择模型。
 4. 等待插件创建最终笔记并更新导入历史。
+5. （可选）执行 `Open config file`（命令 ID：`open-config`）直接编辑库内 `config.toml`。
 
 ## 配置项
+
+设置页按 `Connection`、`Models`、`Output`、`Fallbacks` 分组。
+
+运行时优先级保持不变：
+
+- 已保存的插件设置作为基线
+- 导入时读取 `config.toml` 并覆盖对应项
 
 插件支持以下配置：
 
@@ -43,7 +51,14 @@ Import URL 是一个 Obsidian 社区插件，可以把公开网页或直链 PDF 
 - 添加额外的自定义模型 ID
 - 为特定模型单独覆盖 API 地址
 - 配置输出、处理中、失败和历史目录
-- 启用可选的抓取回退方式
+- 启用可选抓取回退（并在设置中明确披露）
+
+## 平台支持说明
+
+- 核心导入流程兼容桌面和移动端。
+- `Site JSON fallback` 与 `Reader fallback` 行为保持不变。
+- `Browser render fallback (experimental)` 默认关闭，仅限桌面环境，当前仅 macOS。
+- 在不支持环境中会清晰失败，不会触发桌面专用 API。
 
 ## 开发
 
@@ -80,3 +95,5 @@ npm run test
 - `styles.css`
 
 请确保 Git 标签与 `manifest.json` 中的版本号完全一致，且不要添加前导 `v`。
+
+源码事实来源保持在 `src/`；`main.js` 等为构建产物。

@@ -118,14 +118,14 @@ export function renderDefaultConfigToml(settings: Pick<ImportUrlPluginSettings, 
 		"# 修改后下次打开导入弹窗或开始导入时会自动生效。",
 		"",
 		"model_provider = \"OpenAI\"",
-		`model = \"${settings.model}\"`,
-		`review_model = \"${settings.model}\"`,
+		`model = "${settings.model}"`,
+		`review_model = "${settings.model}"`,
 		"model_reasoning_effort = \"high\"",
 		"disable_response_storage = true",
 		"",
 		"[model_providers.OpenAI]",
 		"name = \"OpenAI\"",
-		`base_url = \"${settings.apiBaseUrl}\"`,
+		`base_url = "${settings.apiBaseUrl}"`,
 		"wire_api = \"responses\"",
 		"requires_openai_auth = true",
 		"",
@@ -188,9 +188,13 @@ export async function readImportUrlConfigToml(app: App, path: string): Promise<I
 
 	const vaultWithCachedRead = app.vault as typeof app.vault & {
 		cachedRead?: (file: TFile) => Promise<string>;
+		read?: (file: TFile) => Promise<string>;
 	};
-	const content = typeof vaultWithCachedRead.cachedRead === "function"
-		? await vaultWithCachedRead.cachedRead(existing)
-		: "";
+	let content = "";
+	if (typeof vaultWithCachedRead.cachedRead === "function") {
+		content = await vaultWithCachedRead.cachedRead(existing);
+	} else if (typeof vaultWithCachedRead.read === "function") {
+		content = await vaultWithCachedRead.read(existing);
+	}
 	return parseImportUrlConfigToml(content);
 }
