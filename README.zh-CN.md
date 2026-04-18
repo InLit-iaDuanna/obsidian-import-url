@@ -86,6 +86,23 @@ npm run build
 npm run test
 ```
 
+运行 Lint：
+
+```bash
+npm run lint
+```
+
+## 常见问题排查
+
+- 提示缺少 API Key：
+  在设置 `Connection` → `API key` 保存密钥后再执行导入或连接测试。
+- `config.toml` 看起来没生效：
+  先确认 `Connection` → `Config file path` 路径正确，再重新打开导入弹窗或发起一次新导入触发重载。
+- 移动端开启浏览器渲染回退后失败：
+  关闭 `Browser render fallback (experimental)`；该能力仅限桌面端，当前仅 macOS。
+- 感觉导入卡住：
+  到你配置的 `History folder` 查看可见历史笔记，确认阶段、进度信息和最近更新时间。
+
 ## 发布
 
 发布到 Obsidian 时，请将以下文件作为 GitHub Release 附件上传：

@@ -86,6 +86,23 @@ Run tests:
 npm run test
 ```
 
+Run lint:
+
+```bash
+npm run lint
+```
+
+## Troubleshooting
+
+- Missing API key:
+  Save the key in Settings under `Connection` → `API key`. Imports and connection tests both require a saved key.
+- `config.toml` seems ignored:
+  Confirm the path in `Connection` → `Config file path`, then reopen the modal or start a new import to reload runtime overrides.
+- Import fails on mobile with browser fallback enabled:
+  Disable `Browser render fallback (experimental)`. It is desktop-only and currently macOS-only.
+- Import appears stuck:
+  Check the visible history note under your configured `History folder` to see stage, progress message, and last update time.
+
 ## Release
 
 For an Obsidian release, attach these files to the GitHub release:

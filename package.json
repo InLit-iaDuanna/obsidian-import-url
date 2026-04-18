@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-import-url",
-	"version": "1.0.2",
+	"version": "1.0.3",
 	"description": "Import a URL into a structured Obsidian note with OpenAI.",
 	"main": "main.js",
 	"type": "module",
