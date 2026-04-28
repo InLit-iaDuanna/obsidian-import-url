@@ -7,6 +7,11 @@ export interface ImportHistoryGroup {
 	entries: ImportHistoryEntry[];
 }
 
+export interface FindRecentImportOptions {
+	model?: string;
+	statuses?: ImportHistoryEntry["status"][];
+}
+
 function isValidDateString(value: string): boolean {
 	return !Number.isNaN(new Date(value).getTime());
 }
@@ -15,6 +20,21 @@ function sortRecent(entries: ImportHistoryEntry[]): ImportHistoryEntry[] {
 	return [...entries].sort((left, right) => {
 		return new Date(right.submittedAt).getTime() - new Date(left.submittedAt).getTime();
 	});
+}
+
+export function normalizeHistoryMatchUrl(rawUrl: string): string | null {
+	const trimmed = rawUrl.trim();
+	if (!trimmed) {
+		return null;
+	}
+
+	try {
+		const url = new URL(trimmed);
+		url.hash = "";
+		return url.toString();
+	} catch {
+		return null;
+	}
 }
 
 export function normalizeRecentImports(entries: unknown): ImportHistoryEntry[] {
@@ -112,6 +132,54 @@ function dayDiff(now: Date, target: Date): number {
 	const current = startOfDay(now).getTime();
 	const other = startOfDay(target).getTime();
 	return Math.floor((current - other) / (24 * 60 * 60 * 1000));
+}
+
+export function findLatestImportForUrl(
+	entries: ImportHistoryEntry[],
+	rawUrl: string,
+	options: FindRecentImportOptions = {},
+): ImportHistoryEntry | null {
+	const normalizedUrl = normalizeHistoryMatchUrl(rawUrl);
+	if (!normalizedUrl) {
+		return null;
+	}
+
+	for (const entry of sortRecent(entries)) {
+		if (normalizeHistoryMatchUrl(entry.url) !== normalizedUrl) {
+			continue;
+		}
+
+		if (options.model && entry.model !== options.model) {
+			continue;
+		}
+
+		if (options.statuses && !options.statuses.includes(entry.status)) {
+			continue;
+		}
+
+		return entry;
+	}
+
+	return null;
+}
+
+export function findActiveImportForUrl(
+	entries: ImportHistoryEntry[],
+	rawUrl: string,
+	model?: string,
+): ImportHistoryEntry | null {
+	return findLatestImportForUrl(entries, rawUrl, {
+		model,
+		statuses: ["processing"],
+	});
+}
+
+export function getPreferredImportOpenPath(entry: ImportHistoryEntry): string | undefined {
+	if (entry.status === "complete") {
+		return entry.notePath ?? entry.historyNotePath;
+	}
+
+	return entry.historyNotePath ?? entry.notePath;
 }
 
 export function groupRecentImports(entries: ImportHistoryEntry[], now: Date = new Date()): ImportHistoryGroup[] {

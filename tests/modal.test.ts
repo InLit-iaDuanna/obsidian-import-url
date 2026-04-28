@@ -34,6 +34,7 @@ describe("import modal", () => {
 			initialModel: "gpt-4o",
 			recentImports: [],
 			resolveApiBaseUrl: () => "https://api.openai.com/v1",
+			openVaultPath: vi.fn<() => Promise<boolean>>().mockResolvedValue(true),
 			onSubmit,
 		});
 
@@ -56,6 +57,7 @@ describe("import modal", () => {
 			initialModel: "gpt-4o",
 			recentImports: [createHistoryEntry()],
 			resolveApiBaseUrl: () => "https://api.openai.com/v1",
+			openVaultPath: vi.fn<() => Promise<boolean>>().mockResolvedValue(true),
 			onSubmit,
 		});
 

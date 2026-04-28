@@ -9,6 +9,15 @@ function renderMaybe(value: string | undefined): string {
 	return value?.trim() || "无";
 }
 
+function renderNoteReference(path: string | undefined): string {
+	if (!path?.trim()) {
+		return "无";
+	}
+
+	const normalizedPath = path.trim().replace(/\.md$/iu, "");
+	return `[[${normalizedPath}]]`;
+}
+
 export function buildHistoryFileName(host: string, suffix: string, date: Date): string {
 	return `${formatFileTimestamp(date)} - Import History - ${sanitizeNoteTitle(host) || "source"} - ${suffix}.md`;
 }
@@ -56,6 +65,7 @@ export function renderHistoryNote(entry: ImportHistoryEntry): string {
 		"## Result",
 		"",
 		`- Title: ${renderMaybe(entry.title)}`,
+		`- Final Note Link: ${renderNoteReference(entry.notePath)}`,
 		`- Final Note Path: ${renderMaybe(entry.notePath)}`,
 	].join("\n");
 }

@@ -1,5 +1,5 @@
 import {App, ButtonComponent, Modal, Notice, TextComponent} from "obsidian";
-import {groupRecentImports} from "./history";
+import {findLatestImportForUrl, groupRecentImports} from "./history";
 import {ImportHistoryEntry, ModelOption} from "./types";
 
 interface ImportUrlModalOptions {
@@ -8,6 +8,7 @@ interface ImportUrlModalOptions {
 	initialModel: string;
 	recentImports: ImportHistoryEntry[];
 	resolveApiBaseUrl: (model: string) => string;
+	openVaultPath: (path: string) => Promise<boolean>;
 	onSubmit: (rawUrl: string, model: string) => Promise<void>;
 }
 
@@ -19,6 +20,7 @@ export class ImportUrlModal extends Modal {
 	private modelListEl!: HTMLElement;
 	private historyEl!: HTMLElement;
 	private summaryEl!: HTMLElement;
+	private summaryActionsEl!: HTMLElement;
 
 	constructor(app: App, options: ImportUrlModalOptions) {
 		super(app);
@@ -67,6 +69,7 @@ export class ImportUrlModal extends Modal {
 			});
 
 		this.summaryEl = contentEl.createDiv({cls: "import-url-summary"});
+		this.summaryActionsEl = contentEl.createDiv({cls: "import-url-summary-actions"});
 
 		const modelSectionEl = contentEl.createDiv({cls: "import-url-section"});
 		modelSectionEl.createEl("h3", {text: "Model"});
@@ -194,6 +197,28 @@ export class ImportUrlModal extends Modal {
 				}
 
 				const actionRowEl = itemEl.createDiv({cls: "import-url-history-actions"});
+				if (entry.notePath) {
+					const notePath = entry.notePath;
+					const openNoteButton = actionRowEl.createEl("button", {
+						text: "Open note",
+					});
+					openNoteButton.type = "button";
+					openNoteButton.addEventListener("click", () => {
+						void this.openPath(notePath);
+					});
+				}
+
+				if (entry.historyNotePath) {
+					const historyNotePath = entry.historyNotePath;
+					const openRecordButton = actionRowEl.createEl("button", {
+						text: "Open record",
+					});
+					openRecordButton.type = "button";
+					openRecordButton.addEventListener("click", () => {
+						void this.openPath(historyNotePath);
+					});
+				}
+
 				const fillButton = actionRowEl.createEl("button", {
 					text: "Fill URL",
 					cls: "mod-cta",
@@ -242,6 +267,7 @@ export class ImportUrlModal extends Modal {
 
 	private updateSummary(rawUrl: string): void {
 		this.summaryEl.empty();
+		this.summaryActionsEl.empty();
 		const trimmed = rawUrl.trim();
 		const modelText = this.options.modelOptions.find((option) => option.id === this.selectedModel)?.label ?? this.selectedModel;
 		const apiBaseUrl = this.options.resolveApiBaseUrl(this.selectedModel);
@@ -255,9 +281,59 @@ export class ImportUrlModal extends Modal {
 		try {
 			const url = new URL(trimmed);
 			const looksLikePdf = url.pathname.toLowerCase().endsWith(".pdf");
-			this.summaryEl.setText(`Source: ${url.host} · Type: ${looksLikePdf ? "PDF" : "Webpage"} · Model: ${modelText} · API URL: ${apiText}`);
+			const latestMatch = findLatestImportForUrl(this.options.recentImports, trimmed);
+			const latestSummary = latestMatch
+				? ` · Latest: ${this.getStatusLabel(latestMatch)} · ${this.formatTimestamp(latestMatch.submittedAt)} · ${latestMatch.model}`
+				: "";
+			this.summaryEl.setText(`Source: ${url.host} · Type: ${looksLikePdf ? "PDF" : "Webpage"} · Model: ${modelText} · API URL: ${apiText}${latestSummary}`);
+			if (latestMatch) {
+				this.renderSummaryActions(latestMatch);
+			}
 		} catch {
 			this.summaryEl.setText(`URL format is incomplete. You can keep pasting. Model: ${modelText} · API URL: ${apiText}`);
+		}
+	}
+
+	private renderSummaryActions(entry: ImportHistoryEntry): void {
+		if (entry.notePath) {
+			const notePath = entry.notePath;
+			const buttonEl = this.summaryActionsEl.createEl("button", {
+				text: "Open latest note",
+			});
+			buttonEl.type = "button";
+			buttonEl.addEventListener("click", () => {
+				void this.openPath(notePath);
+			});
+		}
+
+		if (entry.historyNotePath) {
+			const historyNotePath = entry.historyNotePath;
+			const buttonEl = this.summaryActionsEl.createEl("button", {
+				text: "Open latest record",
+			});
+			buttonEl.type = "button";
+			buttonEl.addEventListener("click", () => {
+				void this.openPath(historyNotePath);
+			});
+		}
+
+		if (entry.model !== this.selectedModel) {
+			const buttonEl = this.summaryActionsEl.createEl("button", {
+				text: `Switch to ${entry.model}`,
+			});
+			buttonEl.type = "button";
+			buttonEl.addEventListener("click", () => {
+				this.selectedModel = entry.model;
+				this.renderModelOptions();
+				this.updateSummary(this.input.getValue());
+			});
+		}
+	}
+
+	private async openPath(path: string): Promise<void> {
+		const opened = await this.options.openVaultPath(path);
+		if (opened) {
+			this.close();
 		}
 	}
 

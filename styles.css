@@ -46,6 +46,22 @@ and available in the app when your plugin is enabled.
 	line-height: 1.4;
 }
 
+.import-url-summary-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.55rem;
+	margin-top: -0.4rem;
+}
+
+.import-url-summary-actions button {
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	color: var(--text-normal);
+	border-radius: 10px;
+	padding: 0.35rem 0.7rem;
+	cursor: pointer;
+}
+
 .import-url-section {
 	display: flex;
 	flex-direction: column;

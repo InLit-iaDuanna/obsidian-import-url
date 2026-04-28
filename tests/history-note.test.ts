@@ -29,6 +29,7 @@ describe("history notes", () => {
 		expect(note).toContain("# Import URL Record");
 		expect(note).toContain("Progress: 100%");
 		expect(note).toContain("Current Status: complete");
+		expect(note).toContain("Final Note Link: [[Inbox/Clippings/2026-04-13 1234 - 导入标题]]");
 		expect(note).toContain("Final Note Path: Inbox/Clippings/2026-04-13 1234 - 导入标题.md");
 	});
 });

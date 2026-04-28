@@ -10,6 +10,7 @@ Import URL is an Obsidian community plugin that imports a public web page or dir
 - Extract readable content and generate structured Markdown notes
 - Let you choose a model before each import
 - Keep visible import history inside your vault
+- Show latest match for the current URL and let you jump back to recent result/history notes
 - Support per-model API base URLs for OpenAI-compatible endpoints
 - Stay local-first, with optional third-party fallback fetch methods clearly exposed in settings
 
@@ -32,8 +33,9 @@ Reload Obsidian, then enable **Settings → Community plugins → Import URL**.
 1. Open the command palette and run `Import from URL` (`import`), or click the ribbon icon.
 2. Paste a public URL.
 3. Choose a model.
-4. Wait for the plugin to create the final note and update the import history.
-5. (Optional) Run `Open config file` (`open-config`) to edit `config.toml` directly in your vault.
+4. Check the summary tip to see the latest import status for the same URL, and optionally open the latest result/history note.
+5. Wait for the plugin to create the final note and update the import history.
+6. (Optional) Run `Open config file` (`open-config`) to edit `config.toml` directly in your vault.
 
 ## Configuration
 

@@ -1,7 +1,7 @@
 import {App, PluginManifest} from "obsidian";
 import {describe, expect, it, vi} from "vitest";
+import {ImportController} from "../src/import-controller";
 import ImportUrlPlugin from "../src/main";
-import {DEFAULT_SETTINGS} from "../src/settings";
 
 describe("plugin commands", () => {
 	it("registers stable command IDs and sentence-case names", async () => {
@@ -10,19 +10,14 @@ describe("plugin commands", () => {
 			commands: Array<{id: string; name: string; callback: () => void}>;
 			settingTabs: unknown[];
 		};
-		const internalMethods = plugin as unknown as {
-			tryEnsureConfigTomlReady: () => Promise<void>;
-			refreshEffectiveSettings: () => Promise<typeof DEFAULT_SETTINGS>;
-		};
 
 		vi.spyOn(plugin, "loadSettings").mockResolvedValue(undefined);
-		vi.spyOn(internalMethods, "tryEnsureConfigTomlReady").mockResolvedValue(undefined);
-		vi.spyOn(internalMethods, "refreshEffectiveSettings").mockResolvedValue(DEFAULT_SETTINGS);
+		vi.spyOn(ImportController.prototype, "initialize").mockResolvedValue(undefined);
 
 		await plugin.onload();
 
-		expect(commandRegistry.commands.map((command) => command.id)).toEqual(["import", "open-config"]);
-		expect(commandRegistry.commands.map((command) => command.name)).toEqual(["Import from URL", "Open config file"]);
+		expect(commandRegistry.commands.map((command) => command.id)).toEqual(["import", "import-from-clipboard", "open-config"]);
+		expect(commandRegistry.commands.map((command) => command.name)).toEqual(["Import from URL", "Import from clipboard", "Open config file"]);
 		expect(commandRegistry.settingTabs).toHaveLength(1);
 	});
 });
