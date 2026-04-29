@@ -15,6 +15,7 @@ import {applyConfigTomlOverrides, readImportUrlConfigToml, renderDefaultConfigTo
 export class ImportController {
 	private effectiveSettings: ImportUrlPluginSettings = DEFAULT_SETTINGS;
 	private jobRunner!: JobRunner;
+	private activeRunHistoryId: string | null = null;
 
 	constructor(private readonly plugin: ImportUrlPlugin) {}
 
@@ -137,8 +138,12 @@ export class ImportController {
 			const resolvedApiBaseUrl = resolveModelApiBaseUrl(effectiveSettings, activeModel) || effectiveSettings.apiBaseUrl;
 			const existingActiveImport = findActiveImportForUrl(this.plugin.settings.recentImports, normalizedUrl, activeModel);
 			if (existingActiveImport) {
-				await this.revealActiveImport(existingActiveImport);
-				return;
+				if (this.isCurrentActiveRun(existingActiveImport)) {
+					await this.revealActiveImport(existingActiveImport);
+					return;
+				}
+
+				await this.markStaleImportFailed(existingActiveImport);
 			}
 
 			if (this.jobRunner.isBusy()) {
@@ -151,14 +156,21 @@ export class ImportController {
 
 			historyEntry = await this.createHistoryEntry(normalizedUrl, activeModel, resolvedApiBaseUrl);
 			await this.plugin.saveSettings();
+			this.activeRunHistoryId = historyEntry.id;
 
-			const result = await this.jobRunner.run({
-				rawUrl: normalizedUrl,
-				model: activeModel,
-				apiBaseUrl: resolvedApiBaseUrl,
-				historyId: historyEntry.id,
-			});
-			await this.applyJobResult(historyEntry.id, result);
+			try {
+				const result = await this.jobRunner.run({
+					rawUrl: normalizedUrl,
+					model: activeModel,
+					apiBaseUrl: resolvedApiBaseUrl,
+					historyId: historyEntry.id,
+				});
+				await this.applyJobResult(historyEntry.id, result);
+			} finally {
+				if (this.activeRunHistoryId === historyEntry.id) {
+					this.activeRunHistoryId = null;
+				}
+			}
 		} catch (error) {
 			if (error instanceof UserInputError) {
 				if (historyEntry) {
@@ -190,11 +202,32 @@ export class ImportController {
 
 	private async revealActiveImport(entry: ImportHistoryEntry): Promise<void> {
 		const preferredPath = getPreferredImportOpenPath(entry);
-		if (preferredPath) {
-			await this.openVaultPath(preferredPath);
-		}
+		const opened = preferredPath ? await this.openVaultPath(preferredPath) : false;
+		new Notice(opened ? "This URL is already being imported. Opened the current record." : "This URL is already being imported.", 5000);
+	}
 
-		new Notice("This URL is already being imported. Opened the current record.", 5000);
+	private isCurrentActiveRun(entry: ImportHistoryEntry): boolean {
+		return this.jobRunner.isBusy() && this.activeRunHistoryId === entry.id;
+	}
+
+	private async markStaleImportFailed(entry: ImportHistoryEntry): Promise<void> {
+		const staleMessage = "Previous import did not finish.";
+		let updatedEntry: ImportHistoryEntry | null = null;
+		this.plugin.settings.recentImports = updateRecentImport(this.plugin.settings.recentImports, entry.id, (currentEntry) => ({
+			...(updatedEntry = {
+				...currentEntry,
+				status: "failed",
+				progressStage: "failed",
+				progressPercent: 100,
+				progressMessage: staleMessage,
+				progressUpdatedAt: new Date().toISOString(),
+				errorMessage: currentEntry.errorMessage ?? staleMessage,
+			}),
+		}));
+		await this.plugin.saveSettings();
+		if (updatedEntry) {
+			await this.writeVisibleHistoryNote(updatedEntry);
+		}
 	}
 
 	private async createHistoryEntry(url: string, model: string, apiBaseUrl: string): Promise<ImportHistoryEntry> {
