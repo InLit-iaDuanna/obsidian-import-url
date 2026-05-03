@@ -137,6 +137,16 @@ and available in the app when your plugin is enabled.
 	border-color: var(--interactive-accent);
 }
 
+.import-url-model-empty {
+	width: 100%;
+	padding: 0.65rem 0.75rem;
+	border: 1px dashed var(--background-modifier-border);
+	border-radius: 8px;
+	color: var(--text-muted);
+	background: var(--background-secondary);
+	line-height: 1.4;
+}
+
 .import-url-history {
 	display: flex;
 	flex-direction: column;

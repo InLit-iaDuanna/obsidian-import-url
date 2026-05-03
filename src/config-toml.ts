@@ -373,7 +373,7 @@ export function applyConfigTomlOverrides(
 
 export async function readImportUrlConfigToml(app: App, path: string): Promise<ImportUrlConfigToml | null> {
 	const existing = app.vault.getAbstractFileByPath(path) as VaultReadableFile | null;
-	if (!existing || typeof existing.path !== "string" || !existing.path.endsWith(".toml")) {
+	if (!existing || typeof existing.path !== "string") {
 		return null;
 	}
 
@@ -382,10 +382,17 @@ export async function readImportUrlConfigToml(app: App, path: string): Promise<I
 		read?: (file: VaultReadableFile | TFile) => Promise<string>;
 	};
 	let content = "";
-	if (typeof vaultWithCachedRead.cachedRead === "function") {
-		content = await vaultWithCachedRead.cachedRead(existing);
-	} else if (typeof vaultWithCachedRead.read === "function") {
-		content = await vaultWithCachedRead.read(existing);
+	try {
+		if (typeof vaultWithCachedRead.cachedRead === "function") {
+			content = await vaultWithCachedRead.cachedRead(existing);
+		} else if (typeof vaultWithCachedRead.read === "function") {
+			content = await vaultWithCachedRead.read(existing);
+		}
+	} catch {
+		return null;
+	}
+	if (typeof content !== "string") {
+		return null;
 	}
 	return parseImportUrlConfigToml(content);
 }

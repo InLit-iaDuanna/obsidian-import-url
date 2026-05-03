@@ -130,6 +130,13 @@ export class ImportUrlModal extends Modal {
 
 	private renderModelOptions(): void {
 		this.modelListEl.empty();
+		if (this.options.modelOptions.length === 0) {
+			this.modelListEl.createDiv({
+				cls: "import-url-model-empty",
+				text: "还没有可选模型。请先在设置页或 config.toml 中填写模型 ID。",
+			});
+			return;
+		}
 		for (const option of this.options.modelOptions) {
 			const buttonEl = this.modelListEl.createEl("button", {
 				cls: "import-url-model-pill",
@@ -387,6 +394,10 @@ export class ImportUrlModal extends Modal {
 			if (options.showUnavailableNotice) {
 				new Notice("这条历史记录使用的旧模型不在当前模型列表中，已保留当前选择。", 4000);
 			}
+			return;
+		}
+
+		if (this.selectedModel === model) {
 			return;
 		}
 

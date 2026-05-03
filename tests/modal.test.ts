@@ -101,6 +101,50 @@ describe("import modal", () => {
 		expect(onModelChange).toHaveBeenCalledWith("deepseek-v4-pro");
 	});
 
+	it("does not persist model changes when the selected model pill is clicked again", () => {
+		const onModelChange = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+		const modal = new ImportUrlModal({} as App, {
+			isBusy: () => false,
+			modelOptions: defaultModelOptions,
+			initialModel: "deepseek-v4-flash",
+			recentImports: [],
+			resolveApiBaseUrl: () => "https://api.deepseek.com",
+			openVaultPath: vi.fn<() => Promise<boolean>>().mockResolvedValue(true),
+			onModelChange,
+			onClearRecentImports: vi.fn<() => Promise<boolean>>().mockResolvedValue(true),
+			onSubmit: vi.fn<(rawUrl: string, model: string) => Promise<void>>().mockResolvedValue(undefined),
+		});
+
+		modal.onOpen();
+		const buttons = Array.from(modal.contentEl.querySelectorAll("button"));
+		const flashButton = buttons.find((button) => button.textContent === "DeepSeek V4 Flash");
+		if (!flashButton) {
+			throw new Error("Expected DeepSeek V4 Flash button to exist.");
+		}
+
+		flashButton.click();
+		expect(onModelChange).not.toHaveBeenCalled();
+	});
+
+	it("shows an empty model state when no model options are available", () => {
+		const modal = new ImportUrlModal({} as App, {
+			isBusy: () => false,
+			modelOptions: [],
+			initialModel: "",
+			recentImports: [],
+			resolveApiBaseUrl: () => "https://api.deepseek.com",
+			openVaultPath: vi.fn<() => Promise<boolean>>().mockResolvedValue(true),
+			onModelChange: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+			onClearRecentImports: vi.fn<() => Promise<boolean>>().mockResolvedValue(true),
+			onSubmit: vi.fn<(rawUrl: string, model: string) => Promise<void>>().mockResolvedValue(undefined),
+		});
+
+		modal.onOpen();
+
+		expect(modal.contentEl.textContent).toContain("还没有可选模型");
+		expect(modal.contentEl.querySelector(".import-url-model-empty")).not.toBeNull();
+	});
+
 	it("clears recent imports from the modal toolbar", () => {
 		const onClearRecentImports = vi.fn<() => Promise<boolean>>().mockResolvedValue(true);
 		const modal = new ImportUrlModal({} as App, {
