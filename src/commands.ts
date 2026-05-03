@@ -1,3 +1,4 @@
+import {Notice} from "obsidian";
 import type ImportUrlPlugin from "./main";
 
 interface ImportUrlCommandHandlers {
@@ -68,7 +69,7 @@ export function registerImportUrlCommands(
 		id: "rebuild-wiki-concept-graph",
 		name: "重建知识库真实关联",
 		callback: () => {
-			void handlers.rebuildConceptGraph();
+			void rebuildConceptGraphWithNotice(handlers);
 		},
 	});
 
@@ -76,7 +77,7 @@ export function registerImportUrlCommands(
 		id: "cleanup-legacy-wiki-links",
 		name: "清理旧图谱链接",
 		callback: () => {
-			void handlers.cleanupLegacyGraphLinks();
+			void cleanupLegacyGraphLinksWithNotice(handlers);
 		},
 	});
 
@@ -95,4 +96,24 @@ export function registerImportUrlCommands(
 			void handlers.rejectCurrentWikiCandidate();
 		},
 	});
+}
+
+async function rebuildConceptGraphWithNotice(handlers: ImportUrlCommandHandlers): Promise<void> {
+	try {
+		const result = await handlers.rebuildConceptGraph();
+		new Notice(`图谱已重建：清理 ${result.cleanedFiles} 篇笔记，补充分组 ${result.taggedFiles} 篇，更新 ${result.updatedConcepts} 个概念。`, 5000);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		new Notice(`重建失败：${message}`, 6000);
+	}
+}
+
+async function cleanupLegacyGraphLinksWithNotice(handlers: ImportUrlCommandHandlers): Promise<void> {
+	try {
+		const changedCount = await handlers.cleanupLegacyGraphLinks();
+		new Notice(changedCount > 0 ? `已清理 ${changedCount} 篇旧 AI 整理笔记。` : "没有发现需要清理的旧图谱链接。", 4000);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		new Notice(`清理失败：${message}`, 6000);
+	}
 }

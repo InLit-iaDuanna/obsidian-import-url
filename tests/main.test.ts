@@ -42,4 +42,30 @@ describe("plugin commands", () => {
 		expect(commandRegistry.settingTabs).toHaveLength(1);
 		expect(commandRegistry.views.map((view) => view.type)).toEqual(["import-url-wiki-manager"]);
 	});
+
+	it("runs graph maintenance commands with command-panel feedback wrappers", async () => {
+		const plugin = new ImportUrlPlugin({} as App, {} as PluginManifest);
+		const commandRegistry = plugin as unknown as {
+			commands: Array<{id: string; name: string; callback: () => void}>;
+		};
+		const cleanupLegacyConceptGraphLinks = vi.spyOn(ImportController.prototype, "cleanupLegacyConceptGraphLinks").mockResolvedValue(2);
+		const rebuildWikiConceptGraph = vi.spyOn(ImportController.prototype, "rebuildWikiConceptGraph").mockResolvedValue({
+			cleanedFiles: 1,
+			taggedFiles: 2,
+			updatedConcepts: 3,
+		});
+
+		vi.spyOn(plugin, "loadSettings").mockResolvedValue(undefined);
+		vi.spyOn(ImportController.prototype, "initialize").mockResolvedValue(undefined);
+
+		await plugin.onload();
+
+		commandRegistry.commands.find((command) => command.id === "rebuild-wiki-concept-graph")?.callback();
+		commandRegistry.commands.find((command) => command.id === "cleanup-legacy-wiki-links")?.callback();
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(rebuildWikiConceptGraph).toHaveBeenCalledTimes(1);
+		expect(cleanupLegacyConceptGraphLinks).toHaveBeenCalledTimes(1);
+	});
 });
