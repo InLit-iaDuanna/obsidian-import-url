@@ -42,6 +42,13 @@ export const DEFAULT_SETTINGS: ImportUrlPluginSettings = {
 	wikiCandidatesFolder: "我的知识库/概念库/待入库",
 	wikiConceptsFolder: "我的知识库/概念库/已入库",
 	wikiIndexPath: "我的知识库/概念库/索引.md",
+	imageDownloadEnabled: true,
+	imageAttachmentFolder: "我的知识库/附件/图片",
+	imageOcrEnabled: false,
+	imageOcrApiBaseUrl: "",
+	imageOcrModel: "",
+	imageOcrSecretName: "import-url-image-ocr-api-key",
+	imageOcrMaxImages: 8,
 	defaultLanguage: "zh-CN",
 	fetchTimeoutMs: 30000,
 	aiTimeoutMs: 120000,
@@ -132,6 +139,9 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 	plugin: ImportUrlPlugin;
 	private secretDraft = "";
 	private apiBaseUrlDraft = "";
+	private imageOcrApiBaseUrlDraft = "";
+	private imageOcrApiKeyDraft = "";
+	private imageOcrSecretDraft = "";
 
 	constructor(app: App, plugin: ImportUrlPlugin) {
 		super(app, plugin);
@@ -141,6 +151,11 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 	display(): void {
 		const {containerEl} = this;
 		containerEl.empty();
+		this.secretDraft = "";
+		this.apiBaseUrlDraft = this.plugin.settings.apiBaseUrl;
+		this.imageOcrApiBaseUrlDraft = this.plugin.settings.imageOcrApiBaseUrl;
+		this.imageOcrApiKeyDraft = "";
+		this.imageOcrSecretDraft = this.plugin.settings.imageOcrSecretName;
 
 		new Setting(containerEl)
 			.setName("模型接口")
@@ -149,8 +164,8 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 		this.buildEffectiveSettingsSummary(containerEl);
 
 		new Setting(containerEl)
-			.setName("密钥存储名称")
-			.setDesc("用于在 Obsidian 安全存储中读写模型 API 密钥的名称。通常保持默认即可。")
+			.setName("模型密钥存储名称")
+			.setDesc("用于在 Obsidian 安全存储中读写主模型接口密钥的名称。通常保持默认即可。")
 			.addText((text) => {
 				text.setPlaceholder(DEFAULT_SETTINGS.openAiSecretName)
 					.setValue(this.plugin.settings.openAiSecretName)
@@ -183,6 +198,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 		this.buildTextSetting(containerEl, "wikiCandidatesFolder", "待入库目录", "待审核概念页目录。");
 		this.buildTextSetting(containerEl, "wikiConceptsFolder", "已入库目录", "批准后的正式概念页目录。");
 		this.buildTextSetting(containerEl, "wikiIndexPath", "知识库索引路径", "自动生成的知识库索引笔记路径。");
+		this.buildImageSettings(containerEl);
 		this.buildTextSetting(containerEl, "defaultLanguage", "默认语言", "写入生成笔记 frontmatter 的语言值。");
 		this.buildNumberSetting(containerEl, "fetchTimeoutMs", "抓取超时（毫秒）", "网页或 PDF 抓取的逻辑超时时间。");
 		this.buildNumberSetting(containerEl, "aiTimeoutMs", "模型超时（毫秒）", "模型接口请求的逻辑超时时间。");
@@ -251,7 +267,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("默认模型")
-			.setDesc("新导入默认使用的模型 ID。可以填写账号可用模型，也可以在导入弹窗中临时选择。")
+			.setDesc("新导入默认使用的模型名称。可以填写账号可用模型，也可以在导入弹窗中临时选择。")
 			.addText((text) => {
 				text.setPlaceholder(modelPlaceholder)
 					.setValue(this.plugin.settings.model)
@@ -264,7 +280,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 			.setName("自定义模型")
 			.setDesc("额外模型列表，每行一个。它们会出现在设置页和导入弹窗中。")
 			.addTextArea((textArea) => {
-				textArea.setPlaceholder("每行填写一个模型 ID。")
+				textArea.setPlaceholder("每行填写一个模型名称。")
 					.setValue(formatCustomModelsInput(this.plugin.settings.customModels))
 					.onChange(async (value) => {
 						this.plugin.settings.customModels = parseCustomModelsInput(value);
@@ -279,8 +295,8 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName("按模型配置 API 地址")
-			.setDesc("为不同模型设置不同 API base URL，每行一个：model-id | https://example.com")
+			.setName("按模型配置接口地址")
+			.setDesc("为不同模型设置不同接口地址，每行一个：模型名称 | https://example.com")
 			.addTextArea((textArea) => {
 				textArea.setPlaceholder("deepseek-v4-pro | https://api.deepseek.com\ndeepseek-v4-flash | https://api.deepseek.com")
 					.setValue(formatModelApiBaseUrlsInput(this.plugin.settings.modelApiBaseUrls))
@@ -329,7 +345,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 			setting.setDesc(this.buildDescriptionFragment([
 				`当前模型：${model || "未设置"}`,
-				`当前 API 地址：${apiBaseUrl || "未设置"}`,
+				`当前接口地址：${apiBaseUrl || "未设置"}`,
 				`${sourceHint} 如果导入行为和设置页不同，请检查配置文件。`,
 			]));
 		} catch (error) {
@@ -350,7 +366,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 	private buildApiKeySetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("API 密钥")
+			.setName("模型接口密钥")
 			.setDesc("保存在 Obsidian 安全存储中。部分移动设备可能会要求生物识别或系统认证。")
 			.addText((text) => {
 				text.setPlaceholder("例如：sk-...")
@@ -364,7 +380,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 					.setCta()
 					.onClick(async () => {
 						if (!this.secretDraft) {
-							new Notice("请先输入 API 密钥。", 4000);
+							new Notice("请先输入模型接口密钥。", 4000);
 							return;
 						}
 
@@ -375,13 +391,13 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 						}
 
 						this.secretDraft = "";
-						new Notice("API 密钥已保存。", 3000);
+						new Notice("模型接口密钥已保存。", 3000);
 						this.display();
 					});
 			})
 			.addExtraButton((button) => {
 				button.setIcon("cross")
-					.setTooltip("清除 API 密钥")
+					.setTooltip("清除模型接口密钥")
 					.onClick(async () => {
 						const removed = await removeSecretValue(this.app, this.plugin.settings.openAiSecretName);
 						if (!removed) {
@@ -390,7 +406,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 						}
 
 						this.secretDraft = "";
-						new Notice("API 密钥已清除。", 3000);
+						new Notice("模型接口密钥已清除。", 3000);
 						this.display();
 					});
 			});
@@ -398,8 +414,8 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 	private buildApiBaseUrlSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("模型 API 地址")
-			.setDesc("设置模型接口的 API base URL。DeepSeek 使用 https://api.deepseek.com。")
+			.setName("模型接口地址")
+			.setDesc("设置主模型接口地址。DeepSeek 默认使用 https://api.deepseek.com。")
 			.addText((text) => {
 				text.setPlaceholder(DEFAULT_SETTINGS.apiBaseUrl)
 					.setValue(this.plugin.settings.apiBaseUrl)
@@ -414,7 +430,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 						const nextValue = this.apiBaseUrlDraft || this.plugin.settings.apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl;
 						this.plugin.settings.apiBaseUrl = nextValue;
 						await this.plugin.saveSettings();
-						new Notice(`模型 API 地址已保存：${nextValue}`, 3500);
+						new Notice(`模型接口地址已保存：${nextValue}`, 3500);
 						this.display();
 					});
 			});
@@ -423,7 +439,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 	private buildConfigTomlSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
 			.setName("配置文件路径")
-			.setDesc("Vault 内可见的 `config.toml` 路径。导入运行时会优先读取该文件，并应用模型和 API 地址覆盖。")
+			.setDesc("库内可见的 `config.toml` 路径。导入运行时会优先读取该文件，并应用模型和接口地址覆盖。")
 			.addText((text) => {
 				text.setPlaceholder(DEFAULT_SETTINGS.configTomlPath)
 					.setValue(this.plugin.settings.configTomlPath)
@@ -444,7 +460,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 	private buildConnectionTestSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
 			.setName("测试连接")
-			.setDesc("测试当前实际生效的模型和 API 地址。若 `config.toml` 中存在覆盖项，会先应用覆盖项。")
+			.setDesc("测试当前实际生效的模型和接口地址。若 `config.toml` 中存在覆盖项，会先应用覆盖项。")
 			.addButton((button) => {
 				button.setButtonText("测试")
 					.setCta()
@@ -456,13 +472,13 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 							const effectiveSettings = await this.plugin.getEffectiveSettings();
 							const model = effectiveSettings.model;
 							if (!model.trim()) {
-								new Notice("请先填写模型 ID，再测试连接。", 4000);
+								new Notice("请先填写模型名称，再测试连接。", 4000);
 								return;
 							}
 							const resolvedApiBaseUrl = resolveModelApiBaseUrl(effectiveSettings, model) || DEFAULT_SETTINGS.apiBaseUrl;
 							const apiKey = (await readApiKeyValue(this.app, this.plugin.settings.openAiSecretName))?.trim();
 							if (!apiKey) {
-								new Notice("请先保存 API 密钥，再测试连接。", 4000);
+								new Notice("请先保存模型接口密钥，再测试连接。", 4000);
 								return;
 							}
 
@@ -487,7 +503,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 	private buildTextSetting(
 		containerEl: HTMLElement,
-		key: "outputFolder" | "originalFolder" | "processingFolder" | "failedFolder" | "historyFolder" | "wikiFolder" | "wikiSourcesFolder" | "wikiCandidatesFolder" | "wikiConceptsFolder" | "wikiIndexPath" | "defaultLanguage",
+		key: "outputFolder" | "originalFolder" | "processingFolder" | "failedFolder" | "historyFolder" | "wikiFolder" | "wikiSourcesFolder" | "wikiCandidatesFolder" | "wikiConceptsFolder" | "wikiIndexPath" | "imageAttachmentFolder" | "defaultLanguage",
 		name: string,
 		description: string,
 	): void {
@@ -499,6 +515,146 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings[key] = value.trim();
 						await this.plugin.saveSettings();
+					});
+			});
+	}
+
+	private buildImageSettings(containerEl: HTMLElement): void {
+		new Setting(containerEl)
+			.setName("图片")
+			.setHeading();
+
+		new Setting(containerEl)
+			.setName("下载网页图片")
+			.setDesc("将正文图片保存到库内附件目录，并在原文笔记中使用本地链接。")
+			.addToggle((toggle) => {
+				toggle.setValue(this.plugin.settings.imageDownloadEnabled)
+					.onChange(async (value) => {
+						this.plugin.settings.imageDownloadEnabled = value;
+						await this.plugin.saveSettings();
+					});
+			});
+
+		this.buildTextSetting(containerEl, "imageAttachmentFolder", "图片附件目录", "网页正文图片下载到这里。");
+
+		new Setting(containerEl)
+			.setName("启用图片文字识别")
+			.setDesc("仅对正文大图启用可选视觉模型文字识别。默认关闭。")
+			.addToggle((toggle) => {
+				toggle.setValue(this.plugin.settings.imageOcrEnabled)
+					.onChange(async (value) => {
+						this.plugin.settings.imageOcrEnabled = value;
+						await this.plugin.saveSettings();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName("视觉模型接口地址")
+			.setDesc("视觉模型接口地址。与主模型接口分开配置。")
+			.addText((text) => {
+				text.setPlaceholder("https://example.com/v1")
+					.setValue(this.plugin.settings.imageOcrApiBaseUrl)
+					.onChange((value) => {
+						this.imageOcrApiBaseUrlDraft = value.trim();
+					});
+			})
+			.addButton((button) => {
+				button.setButtonText("保存")
+					.onClick(async () => {
+						this.plugin.settings.imageOcrApiBaseUrl = this.imageOcrApiBaseUrlDraft || this.plugin.settings.imageOcrApiBaseUrl;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName("视觉模型名称")
+			.setDesc("视觉模型名称，例如支持图片输入的模型。")
+			.addText((text) => {
+				text.setValue(this.plugin.settings.imageOcrModel)
+					.onChange(async (value) => {
+						this.plugin.settings.imageOcrModel = value.trim();
+						await this.plugin.saveSettings();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName("视觉模型密钥存储名称")
+			.setDesc("视觉模型密钥在安全存储中的名称。")
+			.addText((text) => {
+				text.setPlaceholder(this.plugin.settings.imageOcrSecretName)
+					.setValue(this.plugin.settings.imageOcrSecretName)
+					.onChange((value) => {
+						this.imageOcrSecretDraft = value.trim();
+					});
+			})
+			.addButton((button) => {
+				button.setButtonText("保存")
+					.onClick(async () => {
+						this.plugin.settings.imageOcrSecretName = this.imageOcrSecretDraft || this.plugin.settings.imageOcrSecretName;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName("视觉模型密钥")
+			.setDesc("用于图片文字识别，单独保存在 Obsidian 安全存储中。未保存时会跳过识别。")
+			.addText((text) => {
+				text.setPlaceholder("例如：sk-...")
+					.onChange((value) => {
+						this.imageOcrApiKeyDraft = value.trim();
+					});
+				text.inputEl.type = "password";
+			})
+			.addButton((button) => {
+				button.setButtonText("保存")
+					.setCta()
+					.onClick(async () => {
+						if (!this.imageOcrApiKeyDraft) {
+							new Notice("请先输入视觉模型密钥。", 4000);
+							return;
+						}
+
+						const saved = await writeSecretValue(this.app, this.plugin.settings.imageOcrSecretName, this.imageOcrApiKeyDraft);
+						if (!saved) {
+							new Notice("当前环境无法写入 Obsidian 安全存储。", 5000);
+							return;
+						}
+
+						this.imageOcrApiKeyDraft = "";
+						new Notice("视觉模型密钥已保存。", 3000);
+						this.display();
+					});
+			})
+			.addExtraButton((button) => {
+				button.setIcon("cross")
+					.setTooltip("清除视觉模型密钥")
+					.onClick(async () => {
+						const removed = await removeSecretValue(this.app, this.plugin.settings.imageOcrSecretName);
+						if (!removed) {
+							new Notice("当前环境无法写入 Obsidian 安全存储。", 5000);
+							return;
+						}
+
+						this.imageOcrApiKeyDraft = "";
+						new Notice("视觉模型密钥已清除。", 3000);
+						this.display();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName("单次最多识别图片数")
+			.setDesc("避免图片太多导致成本和噪声失控。")
+			.addText((text) => {
+				text.inputEl.type = "number";
+				text.setValue(String(this.plugin.settings.imageOcrMaxImages))
+					.onChange(async (value) => {
+						const parsed = Number.parseInt(value, 10);
+						if (Number.isFinite(parsed) && parsed > 0) {
+							this.plugin.settings.imageOcrMaxImages = parsed;
+							await this.plugin.saveSettings();
+						}
 					});
 			});
 	}

@@ -448,7 +448,7 @@ describe("ai-client", () => {
 				model: "gpt-5.4",
 				apiBaseUrl: "https://api.example.com",
 				requestUrl: "https://api.example.com/v1/chat/completions",
-				suggestion: "兼容网关已收到请求，但上游模型调用失败。请检查模型 gpt-5.4 是否在该地址可用；如果不同模型需要不同地址，请在设置里为它单独配置 API URL。",
+				suggestion: "兼容网关已收到请求，但上游模型调用失败。请检查模型 gpt-5.4 是否在该地址可用；如果不同模型需要不同地址，请在设置里为它单独配置接口地址。",
 			},
 		});
 		await vi.runAllTimersAsync();
@@ -550,6 +550,6 @@ describe("ai-client", () => {
 		const firstContent = firstBody.messages[1]?.content ?? "";
 		const fallbackText = fallbackBody.messages[1]?.content ?? "";
 		expect(fallbackText.length).toBeLessThan(firstContent.length);
-		expect(fallbackText).toContain("为兼容当前 API 网关");
+		expect(fallbackText).toContain("为兼容当前模型网关");
 	});
 });

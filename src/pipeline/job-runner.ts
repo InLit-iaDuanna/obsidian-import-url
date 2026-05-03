@@ -3,6 +3,7 @@ import {AiClient} from "./ai-client";
 import {BrowserRenderFallbackUnavailableError} from "./browser-render-fallback";
 import {extractPdfTextContent, extractSiteJsonContent, extractWebpageContent, getSiteJsonFallbackUrl, truncateMarkdown} from "./extractor";
 import {Fetcher, TimeoutError} from "./fetcher";
+import {ImageOcrClient} from "./image-ocr";
 import {validateUrl, parseHttpUrl} from "./url-validator";
 import {
 	FailureInfo,
@@ -14,6 +15,7 @@ import {
 	SourceType,
 	StructuredDigest,
 	UserInputError,
+	WebpageImage,
 	WebpageExtractionResult,
 } from "../types";
 import {writeWikiArtifacts} from "../wiki-artifacts";
@@ -37,9 +39,11 @@ interface JobRunnerOptions {
 	app: App;
 	getSettings: () => ImportUrlPluginSettings;
 	getApiKey: (secretName: string) => Promise<string | null>;
+	getImageOcrApiKey?: (secretName: string) => Promise<string | null>;
 	deps?: {
 		createFetcher?: (settings: ImportUrlPluginSettings) => Fetcher;
 		createAiClient?: (fetcher: Fetcher, settings: ImportUrlPluginSettings, apiKey: string) => AiClient;
+		createImageOcrClient?: (fetcher: Fetcher, settings: ImportUrlPluginSettings, apiKey: string) => ImageOcrClient | null;
 		onProgress?: (event: JobProgressEvent) => Promise<void> | void;
 		now?: () => Date;
 		randomSuffix?: () => string;
@@ -52,6 +56,18 @@ interface WebpageFetchResult {
 	usedReaderFallback: boolean;
 	usedSiteJsonFallback: boolean;
 	usedBrowserRenderFallback: boolean;
+}
+
+interface ImageDownloadResult extends WebpageImage {
+	localPath?: string;
+	binary?: ArrayBuffer;
+	contentType?: string;
+}
+
+interface OcrBlock {
+	image?: ImageDownloadResult;
+	text: string;
+	warning?: string;
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -112,6 +128,49 @@ function basenameFromUrl(url: URL): string {
 	}
 }
 
+function getImageExtensionFromContentType(contentType: string | undefined): string {
+	const normalized = contentType?.split(";")[0]?.trim().toLowerCase() || "";
+	switch (normalized) {
+		case "image/jpeg":
+		case "image/jpg":
+			return ".jpg";
+		case "image/png":
+			return ".png";
+		case "image/gif":
+			return ".gif";
+		case "image/webp":
+			return ".webp";
+		case "image/avif":
+			return ".avif";
+		default:
+			return ".img";
+	}
+}
+
+function getImageBaseName(sourceUrl: string, index: number): string {
+	try {
+		const url = new URL(sourceUrl);
+		const segment = url.pathname.split("/").filter(Boolean).pop() || "image";
+		const decoded = decodeURIComponent(segment).replace(/\.[a-z0-9]+$/iu, "");
+		return sanitizeNoteTitle(decoded || "image") || `image-${index + 1}`;
+	} catch {
+		return `image-${index + 1}`;
+	}
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+	const bytes = new Uint8Array(buffer);
+	let binary = "";
+	const chunkSize = 0x8000;
+
+	for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+		const chunk = bytes.subarray(offset, offset + chunkSize);
+		binary += String.fromCharCode(...chunk);
+	}
+
+	return btoa(binary);
+}
+
 function toFailureInfo(error: unknown): FailureInfo {
 	if (error instanceof PipelineError) {
 		return error.failureInfo;
@@ -132,10 +191,16 @@ function toFailureInfo(error: unknown): FailureInfo {
 	};
 }
 
+function getImageDataUrl(contentType: string | undefined, buffer: ArrayBuffer): string {
+	const mime = contentType?.split(";")[0]?.trim() || "image/jpeg";
+	return `data:${mime};base64,${arrayBufferToBase64(buffer)}`;
+}
+
 export class JobRunner {
 	private readonly app: App;
 	private readonly getSettings: () => ImportUrlPluginSettings;
 	private readonly getApiKey: (secretName: string) => Promise<string | null>;
+	private readonly getImageOcrApiKey?: (secretName: string) => Promise<string | null>;
 	private readonly deps: JobRunnerOptions["deps"];
 	private activeRun: Promise<JobRunResult> | null = null;
 
@@ -143,6 +208,7 @@ export class JobRunner {
 		this.app = options.app;
 		this.getSettings = options.getSettings;
 		this.getApiKey = options.getApiKey;
+		this.getImageOcrApiKey = options.getImageOcrApiKey;
 		this.deps = options.deps;
 	}
 
@@ -169,7 +235,7 @@ export class JobRunner {
 			apiBaseUrl: options.apiBaseUrl?.trim() || this.getSettings().apiBaseUrl,
 		};
 		if (!settings.model.trim()) {
-			throw new UserInputError("导入前请先选择模型 ID。");
+			throw new UserInputError("导入前请先选择模型名称。");
 		}
 		const now = this.deps?.now?.() ?? new Date();
 		const suffix = this.deps?.randomSuffix?.() ?? randomHexSuffix();
@@ -220,6 +286,8 @@ export class JobRunner {
 			let digest: StructuredDigest;
 			let upstreamWarnings: string[] = [];
 			let originalMarkdown = "";
+			let webpageImages: ImageDownloadResult[] = [];
+			let imageOcrBlocks: OcrBlock[] = [];
 
 			if (sourceType === "webpage") {
 				new Notice("正在抓取网页内容...", 3000);
@@ -254,10 +322,28 @@ export class JobRunner {
 				const extracted = extraction.extracted;
 				sourceTitle = extracted.title || host;
 				const truncated = truncateMarkdown(extracted.markdown, settings.maxContentTokens);
+				webpageImages = await this.downloadWebpageImages({
+					settings,
+					fetcher,
+					sourceUrl: validated.url,
+					sourceTitle,
+					images: extracted.images,
+					suffix,
+					now,
+				});
+				imageOcrBlocks = await this.runImageOcr({
+					settings,
+					fetcher,
+					sourceUrl: validated.url,
+					sourceTitle,
+					images: webpageImages,
+				});
 				originalMarkdown = truncated.markdown;
 				upstreamWarnings = uniqueStrings([
 					...extracted.warnings,
 					...truncated.warnings,
+					...webpageImages.flatMap((image) => image.downloadStatus === "failed" && image.warning ? [image.warning] : []),
+					...imageOcrBlocks.flatMap((block) => block.warning ? [block.warning] : []),
 					...(webpage.usedReaderFallback
 						? ["网页正文已通过 r.jina.ai 阅读模式获取；该服务会收到来源 URL。"]
 						: []),
@@ -286,7 +372,7 @@ export class JobRunner {
 						byline: extracted.byline,
 						excerpt: extracted.excerpt,
 					},
-					markdown: truncated.markdown,
+					markdown: this.composeAiMarkdown(truncated.markdown, webpageImages, imageOcrBlocks),
 					warnings: upstreamWarnings,
 				});
 			} else {
@@ -389,6 +475,8 @@ export class JobRunner {
 					sourceType,
 					sourceUrl: validated.url,
 					markdown: originalMarkdown,
+					images: webpageImages,
+					imageOcrBlocks: this.renderImageOcrBlocks(imageOcrBlocks),
 					warnings: upstreamWarnings,
 					structuredNotePath: structuredPath,
 				}),
@@ -531,16 +619,16 @@ export class JobRunner {
 		} catch (error) {
 			throw new PipelineError({
 				stage: "preflight",
-				errorMessage: error instanceof Error ? error.message : "读取 API 密钥失败。",
-				suggestion: "无法读取系统安全存储中的 API 密钥。请重新保存密钥，或检查当前设备是否支持安全存储。",
+				errorMessage: error instanceof Error ? error.message : "读取模型接口密钥失败。",
+				suggestion: "无法读取系统安全存储中的模型接口密钥。请重新保存密钥，或检查当前设备是否支持安全存储。",
 			});
 		}
 
 		if (!apiKey) {
 			throw new PipelineError({
 				stage: "preflight",
-				errorMessage: "模型 API 密钥缺失。",
-				suggestion: "请在插件设置中保存模型 API 密钥。",
+				errorMessage: "模型接口密钥缺失。",
+				suggestion: "请在插件设置中保存模型接口密钥。",
 			});
 		}
 
@@ -556,6 +644,7 @@ export class JobRunner {
 			browserRenderFallbackEnabled: boolean;
 		},
 	): Promise<WebpageFetchResult> {
+		let directFetchError: unknown = null;
 		try {
 			const response = await fetcher.getTextUrl(url);
 			if (response.status >= 400) {
@@ -602,19 +691,47 @@ export class JobRunner {
 				usedBrowserRenderFallback: false,
 			};
 		} catch (error) {
-			const fallbackErrors: unknown[] = [error];
-			if (options.siteJsonFallbackEnabled && shouldTrySiteJsonFallback(error)) {
-				const siteJsonUrl = getSiteJsonFallbackUrl(url);
-				if (siteJsonUrl) {
+			directFetchError = error;
+		}
+
+		const fallbackErrors: unknown[] = [directFetchError];
+		if (options.siteJsonFallbackEnabled && shouldTrySiteJsonFallback(directFetchError)) {
+			const siteJsonUrl = getSiteJsonFallbackUrl(url);
+			if (siteJsonUrl) {
+				try {
+					const siteJsonResponse = await fetcher.getJsonUrl(siteJsonUrl);
+					if (siteJsonResponse.status < 400) {
+						const extracted = extractSiteJsonContent(url, siteJsonResponse.text);
+						if (extracted) {
+							return {
+								content: siteJsonResponse.text,
+								extracted,
+								usedReaderFallback: false,
+								usedSiteJsonFallback: true,
+								usedBrowserRenderFallback: false,
+							};
+						}
+					}
+					fallbackErrors.push(new PipelineError({
+						stage: "fetch",
+						httpStatus: siteJsonResponse.status,
+						errorMessage: `站点 JSON 兜底失败（${siteJsonResponse.status}）。`,
+						suggestion: "站点 JSON 接口已响应，但没能提供可用正文。",
+					}));
+				} catch (siteJsonError) {
+					fallbackErrors.push(siteJsonError);
+				}
+
+				if (options.readerFallbackEnabled) {
 					try {
-						const siteJsonResponse = await fetcher.getJsonUrl(siteJsonUrl);
-						if (siteJsonResponse.status < 400) {
-							const extracted = extractSiteJsonContent(url, siteJsonResponse.text);
+						const readerJsonResponse = await fetcher.getReaderTextUrl(siteJsonUrl);
+						if (readerJsonResponse.status < 400) {
+							const extracted = extractSiteJsonContent(url, readerJsonResponse.text);
 							if (extracted) {
 								return {
-									content: siteJsonResponse.text,
+									content: readerJsonResponse.text,
 									extracted,
-									usedReaderFallback: false,
+									usedReaderFallback: true,
 									usedSiteJsonFallback: true,
 									usedBrowserRenderFallback: false,
 								};
@@ -622,100 +739,78 @@ export class JobRunner {
 						}
 						fallbackErrors.push(new PipelineError({
 							stage: "fetch",
-							httpStatus: siteJsonResponse.status,
-							errorMessage: `站点 JSON 兜底失败（${siteJsonResponse.status}）。`,
-							suggestion: "站点 JSON 接口已响应，但没能提供可用正文。",
+							httpStatus: readerJsonResponse.status,
+							errorMessage: `阅读模式 JSON 兜底失败（${readerJsonResponse.status}）。`,
+							suggestion: "站点 JSON 和阅读代理都已尝试，但仍未拿到可用正文。",
 						}));
-					} catch (siteJsonError) {
-						fallbackErrors.push(siteJsonError);
-					}
-
-					if (options.readerFallbackEnabled) {
-						try {
-							const readerJsonResponse = await fetcher.getReaderTextUrl(siteJsonUrl);
-							if (readerJsonResponse.status < 400) {
-								const extracted = extractSiteJsonContent(url, readerJsonResponse.text);
-								if (extracted) {
-									return {
-										content: readerJsonResponse.text,
-										extracted,
-										usedReaderFallback: true,
-										usedSiteJsonFallback: true,
-										usedBrowserRenderFallback: false,
-									};
-								}
-							}
-							fallbackErrors.push(new PipelineError({
-								stage: "fetch",
-								httpStatus: readerJsonResponse.status,
-								errorMessage: `阅读模式 JSON 兜底失败（${readerJsonResponse.status}）。`,
-								suggestion: "站点 JSON 和阅读代理都已尝试，但仍未拿到可用正文。",
-							}));
-						} catch (readerJsonError) {
-							fallbackErrors.push(readerJsonError);
-						}
+					} catch (readerJsonError) {
+						fallbackErrors.push(readerJsonError);
 					}
 				}
 			}
-
-			if (options.readerFallbackEnabled && shouldTryReaderFallback(error)) {
-				try {
-					const readerResponse = await fetcher.getReaderTextUrl(url);
-					if (readerResponse.status >= 400) {
-						throw new PipelineError({
-							stage: "fetch",
-							httpStatus: readerResponse.status,
-							errorMessage: `阅读模式兜底失败（${readerResponse.status}）。`,
-							suggestion: "原网页直连抓取失败，阅读代理回退也失败了。请稍后重试，或关闭代理回退后换网络再试。",
-						});
-					}
-
-					return {
-						content: readerResponse.text,
-						extracted: undefined,
-						usedReaderFallback: true,
-						usedSiteJsonFallback: false,
-						usedBrowserRenderFallback: false,
-					};
-				} catch (readerError) {
-					fallbackErrors.push(readerError);
-				}
-			}
-
-			if (options.browserRenderFallbackEnabled) {
-				try {
-					const browserResponse = await fetcher.getBrowserRenderedHtml(url);
-					if (browserResponse.status >= 400) {
-						throw new PipelineError({
-							stage: "fetch",
-							httpStatus: browserResponse.status,
-							errorMessage: `浏览器渲染兜底失败（${browserResponse.status}）。`,
-							suggestion: "浏览器渲染兜底失败。请关闭该兜底，或换用其他抓取路径。",
-						});
-					}
-
-					return {
-						content: browserResponse.text,
-						extracted: undefined,
-						usedReaderFallback: false,
-						usedSiteJsonFallback: false,
-						usedBrowserRenderFallback: true,
-					};
-				} catch (browserError) {
-					if (browserError instanceof BrowserRenderFallbackUnavailableError) {
-						fallbackErrors.push(new PipelineError({
-							stage: "fetch",
-							errorMessage: browserError.message,
-							suggestion: "浏览器渲染兜底是实验功能，仅支持桌面端 macOS。请在不支持的设备上关闭该兜底。",
-						}));
-						throw fallbackErrors[fallbackErrors.length - 1];
-					}
-					fallbackErrors.push(browserError);
-				}
-				}
-
-				throw fallbackErrors[fallbackErrors.length - 1] ?? error;
 		}
+
+		if (options.readerFallbackEnabled && shouldTryReaderFallback(directFetchError)) {
+			try {
+				const readerResponse = await fetcher.getReaderTextUrl(url);
+				if (readerResponse.status >= 400) {
+					throw new PipelineError({
+						stage: "fetch",
+						httpStatus: readerResponse.status,
+						errorMessage: `阅读模式兜底失败（${readerResponse.status}）。`,
+						suggestion: "原网页直连抓取失败，阅读代理回退也失败了。请稍后重试，或关闭代理回退后换网络再试。",
+					});
+				}
+
+				return {
+					content: readerResponse.text,
+					extracted: undefined,
+					usedReaderFallback: true,
+					usedSiteJsonFallback: false,
+					usedBrowserRenderFallback: false,
+				};
+			} catch (readerError) {
+				fallbackErrors.push(readerError);
+			}
+		}
+
+		if (options.browserRenderFallbackEnabled) {
+			try {
+				const browserResponse = await fetcher.getBrowserRenderedHtml(url);
+				if (browserResponse.status >= 400) {
+					throw new PipelineError({
+						stage: "fetch",
+						httpStatus: browserResponse.status,
+						errorMessage: `浏览器渲染兜底失败（${browserResponse.status}）。`,
+						suggestion: "浏览器渲染兜底失败。请关闭该兜底，或换用其他抓取路径。",
+					});
+				}
+
+				return {
+					content: browserResponse.text,
+					extracted: undefined,
+					usedReaderFallback: false,
+					usedSiteJsonFallback: false,
+					usedBrowserRenderFallback: true,
+				};
+			} catch (browserError) {
+				if (browserError instanceof BrowserRenderFallbackUnavailableError) {
+					fallbackErrors.push(new PipelineError({
+						stage: "fetch",
+						errorMessage: browserError.message,
+						suggestion: "浏览器渲染兜底是实验功能，仅支持桌面端 macOS。请在不支持的设备上关闭该兜底。",
+					}));
+					throw fallbackErrors[fallbackErrors.length - 1];
+				}
+				fallbackErrors.push(browserError);
+			}
+		}
+
+		const finalError = fallbackErrors[fallbackErrors.length - 1] ?? directFetchError;
+		if (finalError instanceof Error) {
+			throw finalError;
+		}
+		throw new Error(finalError ? getErrorMessage(finalError) : "网页抓取失败。");
 	}
 
 	private async extractWebpageContentWithFallback(
@@ -737,7 +832,7 @@ export class JobRunner {
 		const fallbackErrors: unknown[] = [];
 		try {
 			return {
-				extracted: extractWebpageContent(webpage.content),
+				extracted: extractWebpageContent(webpage.content, url),
 				webpage,
 			};
 		} catch (error) {
@@ -756,7 +851,7 @@ export class JobRunner {
 						suggestion: "网页能打开但未提取出正文，阅读模式兜底也失败了。请换一个公开正文页，或开启浏览器渲染兜底。",
 					});
 				}
-				const extracted = extractWebpageContent(readerResponse.text);
+				const extracted = extractWebpageContent(readerResponse.text, url);
 				return {
 					extracted,
 					webpage: {
@@ -784,7 +879,7 @@ export class JobRunner {
 						suggestion: "网页能打开但未提取出正文，浏览器渲染兜底也失败了。请换一个公开正文页。",
 					});
 				}
-				const extracted = extractWebpageContent(browserResponse.text);
+				const extracted = extractWebpageContent(browserResponse.text, url);
 				return {
 					extracted,
 					webpage: {
@@ -916,8 +1011,237 @@ export class JobRunner {
 			throw new PipelineError({
 				stage: "save",
 				errorMessage: getErrorMessage(error),
-				suggestion: "无法写入笔记内容，请检查 Vault 是否可写。",
+				suggestion: "无法写入笔记内容，请检查当前库是否可写。",
 			});
 		}
+	}
+
+	private composeAiMarkdown(markdown: string, images: ImageDownloadResult[], ocrBlocks: OcrBlock[]): string {
+		const segments = [markdown.trim()];
+		const metadataLines = images
+			.filter((image) => image.downloadStatus !== "skipped" && (image.caption || image.alt || image.title))
+			.map((image) => `- 图片说明：${[image.caption, image.alt, image.title].filter(Boolean).join(" · ")}`);
+		const ocrLines = ocrBlocks
+			.filter((block) => block.text.trim())
+			.map((block) => `- 图片文字识别：${block.text.trim()}`);
+
+		if (metadataLines.length > 0 || ocrLines.length > 0) {
+			segments.push("", "## 图片补充证据", "", ...metadataLines, ...ocrLines);
+		}
+
+		return segments.filter((segment) => segment.trim()).join("\n");
+	}
+
+	private renderImageOcrBlocks(ocrBlocks: OcrBlock[]): string[] {
+		const rendered: string[] = [];
+		let resultIndex = 0;
+
+		for (const block of ocrBlocks) {
+			const text = block.text.trim();
+			const warning = block.warning?.trim();
+			if (!text && !warning) {
+				continue;
+			}
+
+			if (!text) {
+				rendered.push(`- ${warning}`);
+				continue;
+			}
+
+			resultIndex += 1;
+			const lines = [`### 识别结果 ${resultIndex}`, ""];
+			if (block.image?.localPath) {
+				lines.push(`图片：![[${block.image.localPath}]]`, "");
+			} else if (block.image?.url) {
+				lines.push(`图片：${block.image.url}`, "");
+			}
+			lines.push(text);
+			if (warning) {
+				lines.push("", `警告：${warning}`);
+			}
+			rendered.push(lines.join("\n").trim());
+		}
+
+		return rendered;
+	}
+
+	private async downloadWebpageImages(input: {
+		settings: ImportUrlPluginSettings;
+		fetcher: Fetcher;
+		sourceUrl: string;
+		sourceTitle: string;
+		images: WebpageImage[];
+		suffix: string;
+		now: Date;
+	}): Promise<ImageDownloadResult[]> {
+		if (!input.settings.imageDownloadEnabled) {
+			return input.images.map((image) => ({
+				...image,
+				downloadStatus: image.downloadStatus === "skipped" ? "skipped" : "skipped",
+				warning: image.warning ?? "图片下载已关闭。",
+			}));
+		}
+
+		await this.ensureFolder(input.settings.imageAttachmentFolder);
+		const results: ImageDownloadResult[] = [];
+		for (const image of input.images) {
+			if (image.downloadStatus === "skipped") {
+				results.push({...image});
+				continue;
+			}
+
+			try {
+				const response = await input.fetcher.getImageUrl(image.url);
+				if (response.status >= 400) {
+					throw new PipelineError({
+						stage: "fetch",
+						httpStatus: response.status,
+						errorMessage: `图片下载失败（${response.status}）。`,
+						suggestion: "图片资源可能已失效、受防盗链限制，或不是可直接访问的图片链接。",
+					});
+				}
+
+				const binary = response.arrayBuffer;
+				const contentType = response.headers["content-type"] || response.headers["Content-Type"];
+				const extension = getImageExtensionFromContentType(contentType);
+				const fileBase = getImageBaseName(image.url, image.index);
+				const fileName = `${fileBase}${extension}`;
+				const uniquePath = await this.resolveUniqueBinaryPath(input.settings.imageAttachmentFolder, fileName, input.suffix);
+				await this.app.vault.createBinary(uniquePath, binary);
+				results.push({
+					...image,
+					localPath: uniquePath,
+					binary,
+					contentType,
+					downloadStatus: "downloaded",
+				});
+			} catch (error) {
+				results.push({
+					...image,
+					downloadStatus: "failed",
+					warning: image.warning || `图片下载失败：${getErrorMessage(error)}`,
+				});
+			}
+		}
+
+		return results;
+	}
+
+	private async runImageOcr(input: {
+		settings: ImportUrlPluginSettings;
+		fetcher: Fetcher;
+		sourceUrl: string;
+		sourceTitle: string;
+		images: ImageDownloadResult[];
+	}): Promise<OcrBlock[]> {
+		if (!input.settings.imageOcrEnabled || !input.settings.imageOcrApiBaseUrl.trim() || !input.settings.imageOcrModel.trim()) {
+			return [];
+		}
+
+		const downloadedImages = input.images.filter((image) => image.downloadStatus === "downloaded" && image.binary);
+		if (downloadedImages.length === 0) {
+			return [];
+		}
+
+		if (!this.getImageOcrApiKey) {
+			return [{
+				text: "",
+				warning: "图片文字识别已跳过：未提供视觉模型密钥读取器。",
+			}];
+		}
+
+		const secret = input.settings.imageOcrSecretName || "import-url-image-ocr-api-key";
+		let apiKey: string | null = null;
+		try {
+			apiKey = (await this.getImageOcrApiKey(secret))?.trim() ?? null;
+		} catch (error) {
+			return [{
+				text: "",
+				warning: `图片文字识别已跳过：读取视觉模型密钥失败：${getErrorMessage(error)}`,
+			}];
+		}
+		if (!apiKey) {
+			return [{
+				text: "",
+				warning: "图片文字识别已跳过：未保存视觉模型密钥。",
+			}];
+		}
+
+		const client = this.deps?.createImageOcrClient
+			? this.deps.createImageOcrClient(input.fetcher, input.settings, apiKey)
+			: new ImageOcrClient(input.fetcher, input.settings, apiKey);
+		if (!client) {
+			return [{
+				text: "",
+				warning: "图片文字识别已跳过：视觉模型客户端不可用。",
+			}];
+		}
+
+		const maxImages = Math.max(1, Math.floor(input.settings.imageOcrMaxImages || 8));
+		const limited = downloadedImages.slice(0, maxImages);
+		const blocks: OcrBlock[] = [];
+		if (downloadedImages.length > limited.length) {
+			blocks.push({
+				text: "",
+				warning: `图片文字识别已按上限处理前 ${limited.length} 张，剩余 ${downloadedImages.length - limited.length} 张已跳过。`,
+			});
+		}
+
+		for (const image of limited) {
+			if (!image.binary) {
+				continue;
+			}
+			try {
+				const result = await client.ocrImage({
+					imageDataUrl: getImageDataUrl(image.contentType, image.binary),
+					image,
+					sourceUrl: input.sourceUrl,
+					sourceTitle: input.sourceTitle,
+				});
+				if (result.text.trim()) {
+					blocks.push({
+						image,
+						text: result.text.trim(),
+						warning: result.warning,
+					});
+				} else if (result.warning) {
+					blocks.push({
+						image,
+						text: "",
+						warning: result.warning,
+					});
+				}
+			} catch (error) {
+				blocks.push({
+					image,
+					text: "",
+					warning: `图片文字识别失败：${getErrorMessage(error)}`,
+				});
+			}
+		}
+
+		return blocks;
+	}
+
+	private async resolveUniqueBinaryPath(folder: string, fileName: string, suffix: string): Promise<string> {
+		await this.ensureFolder(folder);
+		let candidate = joinVaultPath(folder, fileName);
+		if (!this.app.vault.getAbstractFileByPath(candidate)) {
+			return candidate;
+		}
+
+		const extension = fileName.includes(".") ? fileName.slice(fileName.lastIndexOf(".")) : "";
+		const stem = extension ? candidate.slice(0, -extension.length) : candidate;
+		candidate = `${stem} - ${suffix}${extension}`;
+		if (!this.app.vault.getAbstractFileByPath(candidate)) {
+			return candidate;
+		}
+
+		let counter = 2;
+		while (this.app.vault.getAbstractFileByPath(`${stem} - ${suffix}-${counter}${extension}`)) {
+			counter += 1;
+		}
+
+		return `${stem} - ${suffix}-${counter}${extension}`;
 	}
 }

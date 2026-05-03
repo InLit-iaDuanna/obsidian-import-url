@@ -7,7 +7,7 @@ import {JobRunner} from "./pipeline/job-runner";
 import {parseHttpUrl} from "./pipeline/url-validator";
 import {buildHistoryFileName, renderHistoryNote} from "./render/history-note";
 import {randomHexSuffix} from "./render/notes";
-import {DEFAULT_SETTINGS, readApiKeyValue} from "./settings";
+import {DEFAULT_SETTINGS, readApiKeyValue, readSecretValue} from "./settings";
 import {UserInputError} from "./types";
 import type {ImportHistoryEntry, ImportUrlPluginSettings, JobProgressEvent, JobRunResult} from "./types";
 import {applyConfigTomlOverrides, readImportUrlConfigToml, renderDefaultConfigToml, updateConfigTomlModel} from "./config-toml";
@@ -87,6 +87,7 @@ export class ImportController {
 			app: this.plugin.app,
 			getSettings: () => this.effectiveSettings,
 			getApiKey: async (secretName: string) => readApiKeyValue(this.plugin.app, secretName),
+			getImageOcrApiKey: async (secretName: string) => readSecretValue(this.plugin.app, secretName),
 			deps: {
 				onProgress: (event) => this.handleJobProgress(event),
 			},
@@ -297,7 +298,7 @@ export class ImportController {
 			const normalizedUrl = parseHttpUrl(rawUrl).toString();
 			const activeModel = getPrimaryModel(selectedModel, effectiveSettings.model);
 			if (!activeModel.trim()) {
-				throw new UserInputError("导入前请先选择模型 ID。");
+				throw new UserInputError("导入前请先选择模型名称。");
 			}
 			const resolvedApiBaseUrl = resolveModelApiBaseUrl(effectiveSettings, activeModel) || effectiveSettings.apiBaseUrl;
 			const existingActiveImport = findActiveImportForUrl(this.plugin.settings.recentImports, normalizedUrl, activeModel);

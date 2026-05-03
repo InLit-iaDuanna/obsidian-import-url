@@ -32,17 +32,19 @@ describe("settings tab", () => {
 		await Promise.resolve();
 
 		const headings = settingCtor.instances.filter((item) => item.isHeading).map((item) => item.name);
-		expect(headings).toEqual(["模型接口", "模型", "输出", "抓取兜底"]);
+		expect(headings).toEqual(["模型接口", "模型", "输出", "图片", "抓取兜底"]);
 
 		const labels = settingCtor.instances.map((item) => item.name);
 		expect(labels).toContain("当前生效配置");
 		expect(labels).toContain("测试连接");
-		expect(labels).toContain("模型 API 地址");
-		expect(labels).toContain("按模型配置 API 地址");
+		expect(labels).toContain("模型接口地址");
+		expect(labels).toContain("按模型配置接口地址");
 		expect(labels).toContain("AI 整理目录");
 		expect(labels).toContain("原文目录");
 		expect(labels).toContain("待入库目录");
 		expect(labels).toContain("已入库目录");
+		expect(labels).toContain("下载网页图片");
+		expect(labels).toContain("视觉模型密钥");
 		expect(labels).toContain("浏览器渲染兜底（实验）");
 
 		const effectiveSetting = settingCtor.instances.find((item) => item.name === "当前生效配置");

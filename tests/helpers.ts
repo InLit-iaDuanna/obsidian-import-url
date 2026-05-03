@@ -3,6 +3,7 @@ import {App, RequestUrlResponse} from "obsidian";
 export interface FakeFile {
 	path: string;
 	content: string;
+	binary?: ArrayBuffer;
 }
 
 interface FakeFolder {
@@ -53,13 +54,34 @@ export class FakeVault {
 		return file;
 	}
 
+	async createBinary(path: string, data: ArrayBuffer): Promise<FakeFile> {
+		if (this.entries.has(path)) {
+			throw new Error(`File already exists: ${path}`);
+		}
+
+		const file: FakeFile = {path, content: "", binary: data};
+		this.entries.set(path, file);
+		return file;
+	}
+
 	async modify(file: FakeFile, content: string): Promise<void> {
 		file.content = content;
+		delete file.binary;
+		this.entries.set(file.path, file);
+	}
+
+	async modifyBinary(file: FakeFile, data: ArrayBuffer): Promise<void> {
+		file.binary = data;
+		file.content = "";
 		this.entries.set(file.path, file);
 	}
 
 	async cachedRead(file: FakeFile): Promise<string> {
 		return file.content;
+	}
+
+	async readBinary(file: FakeFile): Promise<ArrayBuffer> {
+		return file.binary ?? new ArrayBuffer(0);
 	}
 
 	async rename(file: FakeFile, targetPath: string): Promise<void> {
@@ -133,5 +155,15 @@ export function createResponse(status: number, text: string, headers: Record<str
 		headers,
 		arrayBuffer: new ArrayBuffer(0),
 		json: parsedJson,
+	} as RequestUrlResponse;
+}
+
+export function createBinaryResponse(status: number, arrayBuffer: ArrayBuffer, headers: Record<string, string> = {}): RequestUrlResponse {
+	return {
+		status,
+		text: "",
+		headers,
+		arrayBuffer,
+		json: null,
 	} as RequestUrlResponse;
 }

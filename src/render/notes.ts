@@ -1,4 +1,5 @@
 import {FailureInfo, SourceType, StructuredDigest} from "../types";
+import {WebpageImage} from "../types";
 import {renderConceptDraftList} from "../wiki-links";
 import {FrontmatterInput, renderFrontmatter} from "./frontmatter";
 
@@ -75,11 +76,29 @@ function renderPath(path: string | undefined): string {
 	return path?.trim() || "无";
 }
 
+function renderImageBlock(image: WebpageImage): string {
+	const lines = [
+		`![[${image.localPath || image.url}]]`,
+	];
+	if (image.caption || image.alt || image.title) {
+		lines.push("");
+		lines.push(`- ${[image.caption, image.alt, image.title].filter(Boolean).join(" · ")}`);
+	}
+	return lines.join("\n");
+}
+
+function preserveObsidianEmbeds(markdown: string): string {
+	return markdown
+		.replace(/!\[\[([^\]\n]+)\]\]/gu, (_match, target: string) => `{{OBSIDIAN_EMBED:${target}}}`)
+		.replace(/\[\[([^\]\n]+)\]\]/gu, (_match, target: string) => {
+			const display = target.split("|").pop() || target;
+			return display.split("#")[0] || display;
+		})
+		.replace(/\{\{OBSIDIAN_EMBED:([^}\n]+)\}\}/gu, (_match, target: string) => `![[${target}]]`);
+}
+
 function escapeObsidianLinks(markdown: string): string {
-	return markdown.replace(/\[\[([^\]\n]+)\]\]/gu, (_match, target: string) => {
-		const display = target.split("|").pop() || target;
-		return display.split("#")[0] || display;
-	});
+	return preserveObsidianEmbeds(markdown);
 }
 
 export function buildProcessingFileName(host: string, date: Date): string {
@@ -166,17 +185,63 @@ export function renderOriginalNote(input: {
 	sourceType: SourceType;
 	sourceUrl: string;
 	markdown: string;
+	images?: WebpageImage[];
+	imageWarnings?: string[];
+	imageOcrBlocks?: string[];
 	warnings: string[];
 	structuredNotePath?: string;
 }): string {
 	const {frontmatter} = input;
+	const images = input.images ?? [];
+	const imageWarnings = input.imageWarnings ?? [];
+	const imageOcrBlocks = input.imageOcrBlocks ?? [];
+	const renderableImages = images.filter((image) => image.downloadStatus === "downloaded" && image.localPath);
+	const failedImages = images.filter((image) => image.downloadStatus === "failed");
 
-	return [
+	const sections = [
 		renderFrontmatter(frontmatter),
 		"",
 		"# 原文",
 		"",
 		escapeObsidianLinks(input.markdown || "无"),
+	];
+
+	if (renderableImages.length > 0) {
+		sections.push(
+			"",
+			"## 图片",
+			"",
+			...renderableImages.flatMap((image, index) => [
+				`### 图片 ${index + 1}`,
+				"",
+				renderImageBlock(image),
+			]),
+		);
+	}
+
+	if (imageOcrBlocks.length > 0) {
+		sections.push(
+			"",
+			"## 图片文字识别",
+			"",
+			...imageOcrBlocks.flatMap((block) => [
+				block,
+				"",
+			]),
+		);
+	}
+
+	if (failedImages.length > 0 || imageWarnings.length > 0) {
+		sections.push(
+			"",
+			"## 图片下载失败清单",
+			"",
+			...failedImages.map((image) => `- ${image.url}：${image.warning || image.downloadStatus || "失败"}`),
+			...imageWarnings.map((warning) => `- ${warning}`),
+		);
+	}
+
+	sections.push(
 		"",
 		"# 来源",
 		"",
@@ -186,7 +251,9 @@ export function renderOriginalNote(input: {
 		`- 来源标题：${frontmatter.sourceTitle || "未知"}`,
 		`- 抓取时间：${frontmatter.clippedAt}`,
 		`- 警告：${renderWarningSummary(input.warnings)}`,
-	].join("\n");
+	);
+
+	return sections.join("\n");
 }
 
 export function renderFailureNote(input: {
@@ -217,9 +284,9 @@ export function renderFailureNote(input: {
 		"",
 		`- 原始链接：${input.sourceUrl}`,
 		`- 模型：${failure.model ?? frontmatter.model}`,
-		`- API 地址：${failure.apiBaseUrl ?? "未知"}`,
+		`- 接口地址：${failure.apiBaseUrl ?? "未知"}`,
 		`- 请求接口：${failure.requestUrl ?? "未知"}`,
-		`- 请求 ID：${failure.requestId ?? "未知"}`,
+		`- 请求编号：${failure.requestId ?? "未知"}`,
 		`- HTTP 状态：${failure.httpStatus ?? "未知"}`,
 		`- 记录时间：${frontmatter.clippedAt}`,
 	].join("\n");

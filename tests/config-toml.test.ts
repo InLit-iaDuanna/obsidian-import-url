@@ -32,6 +32,15 @@ sources_folder = "我的知识库/概念库/来源"
 candidates_folder = "我的知识库/概念库/待入库"
 concepts_folder = "我的知识库/概念库/已入库"
 index_path = "我的知识库/概念库/索引.md"
+
+[images]
+download_enabled = true
+attachment_folder = "我的知识库/附件/图片"
+ocr_enabled = true
+ocr_api_base_url = "https://vision.example.com/v1"
+ocr_model = "vision-model"
+ocr_secret_name = "import-url-image-ocr-api-key"
+ocr_max_images = 4
 		`);
 
 		expect(parsed).toEqual({
@@ -54,6 +63,13 @@ index_path = "我的知识库/概念库/索引.md"
 			wikiCandidatesFolder: "我的知识库/概念库/待入库",
 			wikiConceptsFolder: "我的知识库/概念库/已入库",
 			wikiIndexPath: "我的知识库/概念库/索引.md",
+			imageDownloadEnabled: true,
+			imageAttachmentFolder: "我的知识库/附件/图片",
+			imageOcrEnabled: true,
+			imageOcrApiBaseUrl: "https://vision.example.com/v1",
+			imageOcrModel: "vision-model",
+			imageOcrSecretName: "import-url-image-ocr-api-key",
+			imageOcrMaxImages: 4,
 		});
 	});
 
@@ -185,6 +201,11 @@ wire_api = "chat_completions"
 		expect(content).toContain("failed_folder = \"我的知识库/状态/失败记录\"");
 		expect(content).toContain("history_folder = \"我的知识库/状态/历史记录\"");
 		expect(content).toContain("[wiki]");
+		expect(content).toContain("[images]");
+		expect(content).toContain("download_enabled = true");
+		expect(content).toContain("attachment_folder = \"我的知识库/附件/图片\"");
+		expect(content).toContain("ocr_enabled = false");
+		expect(content).toContain("ocr_secret_name = \"import-url-image-ocr-api-key\"");
 	});
 
 	it("updates the saved default model in config.toml without touching provider sections", () => {

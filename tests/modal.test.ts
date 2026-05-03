@@ -196,7 +196,7 @@ describe("import modal", () => {
 		expect(summaryText).toContain("来源example.com");
 		expect(summaryText).toContain("类型网页");
 		expect(summaryText).toContain("模型DeepSeek V4 Flash");
-		expect(summaryText).toContain("APIhttps://api.deepseek.com");
+		expect(summaryText).toContain("接口https://api.deepseek.com");
 		expect(summaryText).toContain("最近失败");
 		expect(summaryText).toContain("deepseek-v4-pro");
 		expect(modal.contentEl.querySelector(".import-url-summary-actions")?.textContent).toContain("切换到 deepseek-v4-pro");

@@ -37,9 +37,9 @@ describe("notes rendering", () => {
 		expect(content).toContain("## 建议");
 		expect(content).toContain("## 来源");
 		expect(content).toContain("模型：gpt-4o");
-		expect(content).toContain("API 地址：https://api.openai.com/v1");
+		expect(content).toContain("接口地址：https://api.openai.com/v1");
 		expect(content).toContain("请求接口：https://api.openai.com/v1/responses");
-		expect(content).toContain("请求 ID：req_123");
+		expect(content).toContain("请求编号：req_123");
 	});
 
 	it("renders concepts as plain pending drafts before review", () => {
@@ -121,5 +121,63 @@ describe("notes rendering", () => {
 		expect(content).toContain("AI 整理笔记路径：我的知识库/成文/2026-04-13 1234 - AI整理 - Example.md");
 		expect(content).not.toContain("[[我的知识库/成文/2026-04-13 1234 - AI整理 - Example]]");
 		expect(content).toContain("阅读模式兜底");
+	});
+
+	it("preserves Obsidian image embeds while simplifying ordinary wikilinks", () => {
+		const content = renderOriginalNote({
+			frontmatter: {
+				sourceUrl: "https://example.com",
+				sourceType: "webpage",
+				sourceTitle: "Example",
+				status: "complete",
+				title: "原文 - Example",
+				clippedAt: "2026-04-13T12:34:00+08:00",
+				model: "deepseek-v4-pro",
+				language: "zh-CN",
+				tags: [],
+			},
+			sourceType: "webpage",
+			sourceUrl: "https://example.com",
+			markdown: "段落 [[普通链接|显示文本]] 和 ![[我的知识库/附件/图片/cover.webp]]",
+			warnings: [],
+		});
+
+		expect(content).toContain("显示文本");
+		expect(content).toContain("![[我的知识库/附件/图片/cover.webp]]");
+		expect(content).not.toContain("[[普通链接|显示文本]]");
+	});
+
+	it("does not render skipped decorative images as download failures", () => {
+		const content = renderOriginalNote({
+			frontmatter: {
+				sourceUrl: "https://example.com",
+				sourceType: "webpage",
+				sourceTitle: "Example",
+				status: "complete",
+				title: "原文 - Example",
+				clippedAt: "2026-04-13T12:34:00+08:00",
+				model: "deepseek-v4-pro",
+				language: "zh-CN",
+				tags: [],
+			},
+			sourceType: "webpage",
+			sourceUrl: "https://example.com",
+			markdown: "正文段落",
+			images: [
+				{
+					index: 0,
+					url: "https://example.com/avatar.png",
+					alt: "头像",
+					title: "",
+					caption: "",
+					downloadStatus: "skipped",
+					warning: "图片已跳过：疑似装饰、头像或追踪图片",
+				},
+			],
+			warnings: [],
+		});
+
+		expect(content).not.toContain("## 图片下载失败清单");
+		expect(content).not.toContain("avatar.png");
 	});
 });

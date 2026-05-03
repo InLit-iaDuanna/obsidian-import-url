@@ -85,6 +85,22 @@ export class Fetcher {
 			this.fetchTimeoutMs,
 			"fetch",
 			`GET 请求在 ${this.fetchTimeoutMs}ms 后超时。`,
+			);
+	}
+
+	getImageUrl(url: string): Promise<RequestUrlResponse> {
+		return withTimeout(
+			requestUrl({
+				url,
+				method: "GET",
+				headers: {
+					Accept: "image/avif,image/webp,image/png,image/jpeg,image/gif,image/*,*/*;q=0.8",
+				},
+				throw: false,
+			}),
+			this.fetchTimeoutMs,
+			"fetch",
+			`GET 请求在 ${this.fetchTimeoutMs}ms 后超时。`,
 		);
 	}
 

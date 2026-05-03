@@ -118,6 +118,346 @@ describe("job-runner", () => {
 		expect(workspace.openedFiles[0]?.path).toBe("我的知识库/成文/2026-04-13 1234 - AI整理 - 整理标题.md");
 	});
 
+	it("downloads webpage images into the attachment folder and embeds them in the original note", async () => {
+		const {app, vault} = createFakeApp();
+		const fetcher = {
+			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
+			getTextUrl: vi.fn().mockResolvedValue(createResponse(
+				200,
+				"<html><head><title>Source Title</title></head><body><article><img src=\"/images/cover.png\" alt=\"封面图\"><p>正文</p></article></body></html>",
+				{"content-type": "text/html"},
+			)),
+			getImageUrl: vi.fn().mockResolvedValue({
+				status: 200,
+				text: "",
+				headers: {"content-type": "image/png"},
+				arrayBuffer: new TextEncoder().encode("png-bytes").buffer,
+				json: null,
+			} as RequestUrlResponse),
+		} as unknown as Fetcher;
+
+		const runner = new JobRunner({
+			app,
+			getSettings: () => ({
+				...createSettings(),
+				imageDownloadEnabled: true,
+			}),
+			getApiKey: async () => "sk-test",
+			deps: {
+				now: () => new Date(2026, 3, 13, 12, 34, 56),
+				randomSuffix: () => "beef",
+				createFetcher: () => fetcher,
+				createAiClient: () => ({
+					digestWebpage: vi.fn().mockResolvedValue(sampleDigest),
+					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
+				}) as unknown as AiClient,
+			},
+		});
+
+		await runner.run("https://example.com/article");
+
+		expect(vault.listFiles().map((file) => file.path)).toContain("我的知识库/附件/图片/cover.png");
+		expect(vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md")).toContain("![[我的知识库/附件/图片/cover.png]]");
+	});
+
+	it("keeps the import successful and records a failure list when image download fails", async () => {
+		const {app, vault} = createFakeApp();
+		const fetcher = {
+			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
+			getTextUrl: vi.fn().mockResolvedValue(createResponse(
+				200,
+				"<html><head><title>Source Title</title></head><body><article><img src=\"/images/private.png\" alt=\"受限图片\"><p>正文</p></article></body></html>",
+				{"content-type": "text/html"},
+			)),
+			getImageUrl: vi.fn().mockResolvedValue({
+				status: 403,
+				text: "forbidden",
+				headers: {"content-type": "text/plain"},
+				arrayBuffer: new ArrayBuffer(0),
+				json: null,
+			} as RequestUrlResponse),
+		} as unknown as Fetcher;
+
+		const runner = new JobRunner({
+			app,
+			getSettings: () => ({
+				...createSettings(),
+				imageDownloadEnabled: true,
+			}),
+			getApiKey: async () => "sk-test",
+			deps: {
+				now: () => new Date(2026, 3, 13, 12, 34, 56),
+				randomSuffix: () => "beef",
+				createFetcher: () => fetcher,
+				createAiClient: () => ({
+					digestWebpage: vi.fn().mockResolvedValue(sampleDigest),
+					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
+				}) as unknown as AiClient,
+			},
+		});
+
+		await runner.run("https://example.com/article");
+
+		const original = vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md");
+		expect(original).toContain("## 图片下载失败清单");
+		expect(original).toContain("https://example.com/images/private.png");
+		expect(original).toContain("图片下载失败");
+		expect(vault.read("我的知识库/成文/2026-04-13 1234 - AI整理 - 整理标题.md")).toContain("# 整理标题");
+	});
+
+	it("adds the fixed suffix when a downloaded image filename already exists", async () => {
+		const {app, vault} = createFakeApp();
+		await vault.create("我的知识库/附件/图片/cover.png", "existing image placeholder");
+		const fetcher = {
+			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
+			getTextUrl: vi.fn().mockResolvedValue(createResponse(
+				200,
+				"<html><head><title>Source Title</title></head><body><article><img src=\"/images/cover.png\" alt=\"封面图\"><p>正文</p></article></body></html>",
+				{"content-type": "text/html"},
+			)),
+			getImageUrl: vi.fn().mockResolvedValue({
+				status: 200,
+				text: "",
+				headers: {"content-type": "image/png"},
+				arrayBuffer: new TextEncoder().encode("png-bytes").buffer,
+				json: null,
+			} as RequestUrlResponse),
+		} as unknown as Fetcher;
+
+		const runner = new JobRunner({
+			app,
+			getSettings: () => ({
+				...createSettings(),
+				imageDownloadEnabled: true,
+			}),
+			getApiKey: async () => "sk-test",
+			deps: {
+				now: () => new Date(2026, 3, 13, 12, 34, 56),
+				randomSuffix: () => "beef",
+				createFetcher: () => fetcher,
+				createAiClient: () => ({
+					digestWebpage: vi.fn().mockResolvedValue(sampleDigest),
+					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
+				}) as unknown as AiClient,
+			},
+		});
+
+		await runner.run("https://example.com/article");
+
+		expect(vault.listFiles().map((file) => file.path)).toContain("我的知识库/附件/图片/cover - beef.png");
+		expect(vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md")).toContain("![[我的知识库/附件/图片/cover - beef.png]]");
+	});
+
+	it("keeps the import successful when image OCR is enabled but the vision key is missing", async () => {
+		const {app, vault} = createFakeApp();
+		const fetcher = {
+			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
+			getTextUrl: vi.fn().mockResolvedValue(createResponse(
+				200,
+				"<html><head><title>Source Title</title></head><body><article><img src=\"/images/chart.webp\" alt=\"图表\"><p>正文</p></article></body></html>",
+				{"content-type": "text/html"},
+			)),
+			getImageUrl: vi.fn().mockResolvedValue({
+				status: 200,
+				text: "",
+				headers: {"content-type": "image/webp"},
+				arrayBuffer: new TextEncoder().encode("webp-bytes").buffer,
+				json: null,
+			} as RequestUrlResponse),
+		} as unknown as Fetcher;
+
+		const runner = new JobRunner({
+			app,
+			getSettings: () => ({
+				...createSettings(),
+				imageDownloadEnabled: true,
+				imageOcrEnabled: true,
+				imageOcrApiBaseUrl: "https://vision.example.com/v1",
+				imageOcrModel: "vision-model",
+			}),
+			getApiKey: async () => "sk-main",
+			getImageOcrApiKey: async () => null,
+			deps: {
+				now: () => new Date(2026, 3, 13, 12, 34, 56),
+				randomSuffix: () => "beef",
+				createFetcher: () => fetcher,
+				createAiClient: () => ({
+					digestWebpage: vi.fn().mockResolvedValue(sampleDigest),
+					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
+				}) as unknown as AiClient,
+				createImageOcrClient: vi.fn(),
+			},
+		});
+
+		await runner.run("https://example.com/article");
+
+		const original = vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md");
+		expect(original).toContain("![[我的知识库/附件/图片/chart.webp]]");
+		expect(original).toContain("## 图片文字识别");
+		expect(original).toContain("图片文字识别已跳过：未保存视觉模型密钥。");
+		expect(vault.read("我的知识库/成文/2026-04-13 1234 - AI整理 - 整理标题.md")).toContain("# 整理标题");
+	});
+
+	it("does not reuse the main model key for image OCR when no vision key reader is provided", async () => {
+		const {app, vault} = createFakeApp();
+		const createImageOcrClient = vi.fn();
+		const fetcher = {
+			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
+			getTextUrl: vi.fn().mockResolvedValue(createResponse(
+				200,
+				"<html><head><title>Source Title</title></head><body><article><img src=\"/images/chart.webp\" alt=\"图表\"><p>正文</p></article></body></html>",
+				{"content-type": "text/html"},
+			)),
+			getImageUrl: vi.fn().mockResolvedValue({
+				status: 200,
+				text: "",
+				headers: {"content-type": "image/webp"},
+				arrayBuffer: new TextEncoder().encode("webp-bytes").buffer,
+				json: null,
+			} as RequestUrlResponse),
+		} as unknown as Fetcher;
+
+		const runner = new JobRunner({
+			app,
+			getSettings: () => ({
+				...createSettings(),
+				imageDownloadEnabled: true,
+				imageOcrEnabled: true,
+				imageOcrApiBaseUrl: "https://vision.example.com/v1",
+				imageOcrModel: "vision-model",
+			}),
+			getApiKey: async () => "sk-main",
+			deps: {
+				now: () => new Date(2026, 3, 13, 12, 34, 56),
+				randomSuffix: () => "beef",
+				createFetcher: () => fetcher,
+				createAiClient: () => ({
+					digestWebpage: vi.fn().mockResolvedValue(sampleDigest),
+					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
+				}) as unknown as AiClient,
+				createImageOcrClient,
+			},
+		});
+
+		await runner.run("https://example.com/article");
+
+		expect(createImageOcrClient).not.toHaveBeenCalled();
+		expect(vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md")).toContain("图片文字识别已跳过：未提供视觉模型密钥读取器。");
+	});
+
+	it("adds successful image OCR text to the original note and AI input", async () => {
+		const {app, vault} = createFakeApp();
+		let capturedMarkdown = "";
+		const ocrImage = vi.fn().mockResolvedValue({text: "图中文字：增长 42%", warning: "局部模糊"});
+		const fetcher = {
+			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
+			getTextUrl: vi.fn().mockResolvedValue(createResponse(
+				200,
+				"<html><head><title>Source Title</title></head><body><article><img src=\"/images/chart.webp\" alt=\"增长图\"><p>正文</p></article></body></html>",
+				{"content-type": "text/html"},
+			)),
+			getImageUrl: vi.fn().mockResolvedValue({
+				status: 200,
+				text: "",
+				headers: {"content-type": "image/webp"},
+				arrayBuffer: new TextEncoder().encode("webp-bytes").buffer,
+				json: null,
+			} as RequestUrlResponse),
+		} as unknown as Fetcher;
+
+		const runner = new JobRunner({
+			app,
+			getSettings: () => ({
+				...createSettings(),
+				imageDownloadEnabled: true,
+				imageOcrEnabled: true,
+				imageOcrApiBaseUrl: "https://vision.example.com/v1",
+				imageOcrModel: "vision-model",
+			}),
+			getApiKey: async () => "sk-main",
+			getImageOcrApiKey: async () => "sk-vision",
+			deps: {
+				now: () => new Date(2026, 3, 13, 12, 34, 56),
+				randomSuffix: () => "beef",
+				createFetcher: () => fetcher,
+				createAiClient: () => ({
+					digestWebpage: vi.fn().mockImplementation(async ({markdown}: {markdown: string}) => {
+						capturedMarkdown = markdown;
+						return sampleDigest;
+					}),
+					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
+				}) as unknown as AiClient,
+				createImageOcrClient: () => ({ocrImage}) as unknown as never,
+			},
+		});
+
+		await runner.run("https://example.com/article");
+
+		const original = vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md");
+		expect(ocrImage).toHaveBeenCalledTimes(1);
+		expect(original).toContain("## 图片文字识别");
+		expect(original).toContain("图中文字：增长 42%");
+		expect(original).toContain("警告：局部模糊");
+		expect(capturedMarkdown).toContain("## 图片补充证据");
+		expect(capturedMarkdown).toContain("图片说明：增长图");
+		expect(capturedMarkdown).toContain("图片文字识别：图中文字：增长 42%");
+	});
+
+	it("limits image OCR calls and records a truncation warning", async () => {
+		const {app, vault} = createFakeApp();
+		const ocrImage = vi.fn().mockResolvedValue({text: "可见文字"});
+		const fetcher = {
+			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
+			getTextUrl: vi.fn().mockResolvedValue(createResponse(
+				200,
+				[
+					"<html><head><title>Source Title</title></head><body><article>",
+					"<img src=\"/images/a.webp\" alt=\"图 A\">",
+					"<img src=\"/images/b.webp\" alt=\"图 B\">",
+					"<p>正文</p>",
+					"</article></body></html>",
+				].join(""),
+				{"content-type": "text/html"},
+			)),
+			getImageUrl: vi.fn().mockResolvedValue({
+				status: 200,
+				text: "",
+				headers: {"content-type": "image/webp"},
+				arrayBuffer: new TextEncoder().encode("webp-bytes").buffer,
+				json: null,
+			} as RequestUrlResponse),
+		} as unknown as Fetcher;
+
+		const runner = new JobRunner({
+			app,
+			getSettings: () => ({
+				...createSettings(),
+				imageDownloadEnabled: true,
+				imageOcrEnabled: true,
+				imageOcrApiBaseUrl: "https://vision.example.com/v1",
+				imageOcrModel: "vision-model",
+				imageOcrMaxImages: 1,
+			}),
+			getApiKey: async () => "sk-main",
+			getImageOcrApiKey: async () => "sk-vision",
+			deps: {
+				now: () => new Date(2026, 3, 13, 12, 34, 56),
+				randomSuffix: () => "beef",
+				createFetcher: () => fetcher,
+				createAiClient: () => ({
+					digestWebpage: vi.fn().mockResolvedValue(sampleDigest),
+					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
+				}) as unknown as AiClient,
+				createImageOcrClient: () => ({ocrImage}) as unknown as never,
+			},
+		});
+
+		await runner.run("https://example.com/article");
+
+		expect(ocrImage).toHaveBeenCalledTimes(1);
+		expect(vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md")).toContain("图片文字识别已按上限处理前 1 张，剩余 1 张已跳过。");
+	});
+
 	it("falls back to body HTML when Readability parsing fails inside the pipeline", async () => {
 		const {app} = createFakeApp();
 		let capturedMarkdown = "";

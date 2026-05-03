@@ -106,7 +106,7 @@ export function getModelOptions(settings: Pick<ImportUrlPluginSettings, "model" 
 		options.push({
 			id: customModel,
 			label: customModel,
-			description: "自定义模型 ID",
+			description: "自定义模型名称",
 		});
 		seen.add(customModel);
 	}

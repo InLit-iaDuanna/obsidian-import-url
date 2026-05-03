@@ -78,7 +78,7 @@ export class ImportUrlModal extends Modal {
 		const modelSectionEl = contentEl.createDiv({cls: "import-url-section"});
 		modelSectionEl.createEl("h3", {text: "模型"});
 		modelSectionEl.createEl("p", {
-			text: "为这次导入选择模型。模型 ID 也可以保存在设置页或 config.toml 中。",
+			text: "为这次导入选择模型。模型名称也可以保存在设置页或 config.toml 中。",
 			cls: "import-url-section-copy",
 		});
 		this.modelListEl = modelSectionEl.createDiv({cls: "import-url-model-list"});
@@ -133,7 +133,7 @@ export class ImportUrlModal extends Modal {
 		if (this.options.modelOptions.length === 0) {
 			this.modelListEl.createDiv({
 				cls: "import-url-model-empty",
-				text: "还没有可选模型。请先在设置页或 config.toml 中填写模型 ID。",
+				text: "还没有可选模型。请先在设置页或 config.toml 中填写模型名称。",
 			});
 			return;
 		}
@@ -298,14 +298,14 @@ export class ImportUrlModal extends Modal {
 		const trimmed = rawUrl.trim();
 		const modelText = this.options.modelOptions.find((option) => option.id === this.selectedModel)?.label ?? (this.selectedModel || "未选择模型");
 		const apiBaseUrl = this.options.resolveApiBaseUrl(this.selectedModel);
-		const apiText = apiBaseUrl || "未配置 API URL";
+		const apiText = apiBaseUrl || "未配置接口地址";
 		const gridEl = this.summaryEl.createDiv({cls: "import-url-summary-grid"});
 
 		if (!trimmed) {
 			this.createSummaryField(gridEl, "来源", "等待粘贴 URL");
 			this.createSummaryField(gridEl, "类型", "网页 / PDF");
 			this.createSummaryField(gridEl, "模型", modelText);
-			this.createSummaryField(gridEl, "API", apiText);
+			this.createSummaryField(gridEl, "接口", apiText);
 			return;
 		}
 
@@ -316,7 +316,7 @@ export class ImportUrlModal extends Modal {
 			this.createSummaryField(gridEl, "来源", url.host);
 			this.createSummaryField(gridEl, "类型", looksLikePdf ? "PDF" : "网页");
 			this.createSummaryField(gridEl, "模型", modelText);
-			this.createSummaryField(gridEl, "API", apiText);
+			this.createSummaryField(gridEl, "接口", apiText);
 			if (latestMatch) {
 				this.createSummaryField(
 					gridEl,
@@ -330,7 +330,7 @@ export class ImportUrlModal extends Modal {
 			this.createSummaryField(gridEl, "来源", "URL 格式未完成");
 			this.createSummaryField(gridEl, "类型", "等待识别");
 			this.createSummaryField(gridEl, "模型", modelText);
-			this.createSummaryField(gridEl, "API", apiText);
+			this.createSummaryField(gridEl, "接口", apiText);
 		}
 	}
 
@@ -462,7 +462,7 @@ export class ImportUrlModal extends Modal {
 			return;
 		}
 		if (!this.selectedModel.trim()) {
-			new Notice("请先选择模型 ID。", 3000);
+			new Notice("请先选择模型名称。", 3000);
 			return;
 		}
 

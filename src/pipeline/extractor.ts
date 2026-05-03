@@ -1,8 +1,10 @@
 import {Readability} from "@mozilla/readability";
 import {htmlToMarkdown} from "obsidian";
-import {PipelineError, WebpageExtractionResult} from "../types";
+import {PipelineError, WebpageExtractionResult, WebpageImage} from "../types";
 
-const REMOVED_TAGS = ["script", "style", "iframe", "img", "link", "source", "video", "audio", "noscript", "svg", "canvas"];
+const REMOVED_TAGS = ["script", "style", "iframe", "link", "source", "video", "audio", "noscript", "svg", "canvas", "img"];
+const IMAGE_SKIP_PATTERN = /(avatar|profile|icon|emoji|emote|logo|sprite|pixel|tracker|advert|ads?|social|share|cookie|loader|spacer|thumb|thumbnail|avatar|badge|qr)/iu;
+const IMAGE_DATA_URL_PATTERN = /^(?:data|blob):/iu;
 
 function normalizePlainTextLineBreaks(text: string): string {
 	return text.replace(/\r\n?/gu, "\n");
@@ -69,6 +71,183 @@ function decodePdfHexString(value: string): string {
 		}
 	}
 	return result;
+}
+
+function parsePositiveInteger(value: string | null | undefined): number | undefined {
+	if (!value) {
+		return undefined;
+	}
+
+	const parsed = Number.parseInt(value, 10);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function getImageSourceCandidate(image: HTMLImageElement): string {
+	const candidates = [
+		image.getAttribute("src"),
+		image.getAttribute("data-src"),
+		image.getAttribute("data-original"),
+		image.getAttribute("data-lazy-src"),
+		image.getAttribute("data-url"),
+	];
+
+	for (const candidate of candidates) {
+		const trimmed = candidate?.trim();
+		if (trimmed) {
+			return trimmed;
+		}
+	}
+
+	const srcset = image.getAttribute("srcset")?.trim();
+	if (!srcset) {
+		return "";
+	}
+
+	const firstCandidate = srcset.split(",")[0]?.trim().split(/\s+/u)[0]?.trim();
+	return firstCandidate || "";
+}
+
+function resolveAbsoluteUrl(rawUrl: string, baseUrl?: string): string | null {
+	const trimmed = rawUrl.trim();
+	if (!trimmed || IMAGE_DATA_URL_PATTERN.test(trimmed)) {
+		return null;
+	}
+
+	try {
+		const resolved = baseUrl ? new URL(trimmed, baseUrl) : new URL(trimmed);
+		if (!["http:", "https:"].includes(resolved.protocol)) {
+			return null;
+		}
+		return resolved.toString();
+	} catch {
+		return null;
+	}
+}
+
+function extractImageCaption(image: HTMLImageElement): string {
+	const figure = image.closest("figure");
+	const figureCaption = figure?.querySelector("figcaption")?.textContent?.trim();
+	if (figureCaption) {
+		return figureCaption;
+	}
+
+	const siblingCaption = image.parentElement?.querySelector(":scope > figcaption")?.textContent?.trim();
+	if (siblingCaption) {
+		return siblingCaption;
+	}
+
+	const parentCaption = image.parentElement?.nextElementSibling?.textContent?.trim();
+	if (parentCaption && /caption|figcaption|图片说明|图注/iu.test(parentCaption)) {
+		return parentCaption;
+	}
+
+	return "";
+}
+
+function stripImageElements(document: Document): void {
+	for (const image of Array.from(document.querySelectorAll("img"))) {
+		image.remove();
+	}
+
+	for (const source of Array.from(document.querySelectorAll("picture source, source"))) {
+		source.remove();
+	}
+}
+
+function htmlToMarkdownWithoutImages(html: string): string {
+	const document = new DOMParser().parseFromString(html, "text/html");
+	stripImageElements(document);
+	return htmlToMarkdown(document.body?.innerHTML || document.documentElement.innerHTML).trim();
+}
+
+function getImageWarning(reason: string): string {
+	return `图片已跳过：${reason}`;
+}
+
+function shouldSkipImage(image: HTMLImageElement, absoluteUrl: string): string | null {
+	const metadataText = [
+		image.getAttribute("alt"),
+		image.getAttribute("title"),
+		image.getAttribute("id"),
+		image.getAttribute("class"),
+		image.closest("figure")?.getAttribute("class"),
+		image.closest("figure")?.getAttribute("id"),
+	].filter(Boolean).join(" ");
+
+	if (IMAGE_DATA_URL_PATTERN.test(absoluteUrl)) {
+		return "内嵌数据图片";
+	}
+
+	if (!absoluteUrl) {
+		return "无有效图片地址";
+	}
+
+	if (IMAGE_SKIP_PATTERN.test(metadataText)) {
+		return "疑似装饰、头像或追踪图片";
+	}
+
+	const width = parsePositiveInteger(image.getAttribute("width") ?? image.getAttribute("data-width"));
+	const height = parsePositiveInteger(image.getAttribute("height") ?? image.getAttribute("data-height"));
+	if (width !== undefined && height !== undefined && width <= 96 && height <= 96) {
+		return "尺寸过小";
+	}
+
+	return null;
+}
+
+function collectImagesFromHtml(html: string, baseUrl?: string): WebpageImage[] {
+	if (!html.trim()) {
+		return [];
+	}
+
+	const document = new DOMParser().parseFromString(html, "text/html");
+	const images: WebpageImage[] = [];
+	const elements = Array.from(document.querySelectorAll("img"));
+
+	for (const [index, image] of elements.entries()) {
+		const sourceCandidate = getImageSourceCandidate(image);
+		const absoluteUrl = resolveAbsoluteUrl(sourceCandidate, baseUrl);
+		const alt = image.getAttribute("alt")?.trim() || "";
+		const title = image.getAttribute("title")?.trim() || "";
+		const caption = extractImageCaption(image);
+		if (!absoluteUrl) {
+			images.push({
+				index,
+				url: sourceCandidate,
+				alt,
+				title,
+				caption,
+				downloadStatus: "skipped",
+				warning: getImageWarning("无有效图片地址"),
+			});
+			continue;
+		}
+
+		const skipReason = shouldSkipImage(image, absoluteUrl);
+		if (skipReason) {
+			images.push({
+				index,
+				url: absoluteUrl,
+				alt,
+				title,
+				caption,
+				downloadStatus: "skipped",
+				warning: getImageWarning(skipReason),
+			});
+			continue;
+		}
+
+		images.push({
+			index,
+			url: absoluteUrl,
+			alt,
+			title,
+			caption,
+			downloadStatus: "pending",
+		});
+	}
+
+	return images;
 }
 
 function normalizeExtractedPdfText(text: string): string {
@@ -164,6 +343,7 @@ function extractReaderFallbackContent(text: string): WebpageExtractionResult | n
 		byline: "",
 		excerpt: summarySource.slice(0, 280),
 		markdown,
+		images: [],
 		warnings: [],
 	};
 }
@@ -216,9 +396,10 @@ export function extractSiteJsonContent(rawUrl: string, text: string): WebpageExt
 		}
 
 		const firstPost = posts[0];
+		const images = posts.flatMap((post) => collectImagesFromHtml(post.cooked ?? "", rawUrl));
 		const markdownSections = posts.map((post, index) => {
 			const author = post.name?.trim() || post.username?.trim() || `用户 ${index + 1}`;
-			const bodyMarkdown = htmlToMarkdown(post.cooked ?? "").trim();
+			const bodyMarkdown = htmlToMarkdownWithoutImages(scrubHtml(post.cooked ?? ""));
 			if (!bodyMarkdown) {
 				return "";
 			}
@@ -248,6 +429,7 @@ export function extractSiteJsonContent(rawUrl: string, text: string): WebpageExt
 			byline: firstPost?.name?.trim() || firstPost?.username?.trim() || "",
 			excerpt: excerpt.slice(0, 280),
 			markdown,
+			images,
 			warnings: [],
 		};
 	} catch {
@@ -276,36 +458,37 @@ export function scrubHtml(html: string): string {
 		.replace(/\ssrcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
 }
 
-export function extractWebpageContent(html: string): WebpageExtractionResult {
+export function extractWebpageContent(html: string, sourceUrl?: string): WebpageExtractionResult {
 	try {
 		const plainTextFallback = extractReaderFallbackContent(html);
 		if (plainTextFallback) {
 			return plainTextFallback;
 		}
 
-		const scrubbedHtml = scrubHtml(html);
-		const document = new DOMParser().parseFromString(scrubbedHtml, "text/html");
+		const document = new DOMParser().parseFromString(html, "text/html");
 		const readable = new Readability(document, {charThreshold: 0});
 		const article = readable.parse();
+		const baseHtml = article?.content || document.body?.innerHTML || "";
+		const images = collectImagesFromHtml(html, sourceUrl);
 
 		let markdown = "";
-		if (article?.content) {
-			markdown = htmlToMarkdown(article.content).trim();
+		if (baseHtml) {
+			markdown = htmlToMarkdownWithoutImages(scrubHtml(baseHtml));
 		}
 
 		if (!markdown) {
 			const fallbackHtml = document.body?.innerHTML ?? "";
 			if (fallbackHtml.trim()) {
-				markdown = htmlToMarkdown(fallbackHtml).trim();
+				markdown = htmlToMarkdownWithoutImages(scrubHtml(fallbackHtml));
 			}
 		}
 
-			if (!markdown) {
-				throw new PipelineError({
-					stage: "extract",
-					errorMessage: "无法从网页提取可读 Markdown 内容。",
-					suggestion: "请确认链接是公开网页正文页，而不是需要登录或只返回脚本壳的页面。",
-				});
+		if (!markdown) {
+			throw new PipelineError({
+				stage: "extract",
+				errorMessage: "无法从网页提取可读 Markdown 内容。",
+				suggestion: "请确认链接是公开网页正文页，而不是需要登录或只返回脚本壳的页面。",
+			});
 		}
 
 		return {
@@ -313,6 +496,7 @@ export function extractWebpageContent(html: string): WebpageExtractionResult {
 			byline: article?.byline?.trim() || "",
 			excerpt: article?.excerpt?.trim() || "",
 			markdown,
+			images,
 			warnings: [],
 		};
 	} catch (error) {

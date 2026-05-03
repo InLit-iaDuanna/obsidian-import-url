@@ -540,17 +540,17 @@ function buildAiCallFailure(
 	if (isPdf) {
 		suggestion = getPdfSuggestion(message);
 	} else if (httpStatus === 401) {
-		suggestion = "接口已收到请求，但 API 密钥无效或未正确传递。请重新保存密钥后再试。";
+		suggestion = "接口已收到请求，但模型接口密钥无效或未正确传递。请重新保存密钥后再试。";
 	} else if (httpStatus === 404 || httpStatus === 405) {
 		suggestion = context.wireApi === "responses"
-			? `当前接口 ${context.requestUrl} 不可用。请检查模型 API 地址是否正确。`
-			: `当前接口 ${context.requestUrl} 不可用。请检查是否应填写完整的 /chat/completions 地址，或为模型 ${context.model} 单独配置 API URL。`;
+			? `当前接口 ${context.requestUrl} 不可用。请检查模型接口地址是否正确。`
+			: `当前接口 ${context.requestUrl} 不可用。请检查是否应填写完整的 /chat/completions 地址，或为模型 ${context.model} 单独配置接口地址。`;
 	} else if (httpStatus === 429) {
 		suggestion = `当前接口对模型 ${context.model} 限流了。请稍后重试，或切换到其它模型 / 网关。`;
 	} else if ([500, 502, 503, 504].includes(httpStatus) || UPSTREAM_FAILURE_PATTERN.test(message)) {
-		suggestion = `兼容网关已收到请求，但上游模型调用失败。请检查模型 ${context.model} 是否在该地址可用；如果不同模型需要不同地址，请在设置里为它单独配置 API URL。`;
+		suggestion = `兼容网关已收到请求，但上游模型调用失败。请检查模型 ${context.model} 是否在该地址可用；如果不同模型需要不同地址，请在设置里为它单独配置接口地址。`;
 	} else if (context.wireApi === "responses" && UNSUPPORTED_RESPONSES_PATTERN.test(message)) {
-		suggestion = "当前接口不支持该请求格式。请使用支持 chat/completions JSON 输出的模型 API 地址。";
+		suggestion = "当前接口不支持该请求格式。请使用支持 chat/completions JSON 输出的模型接口地址。";
 	} else {
 		suggestion = defaultAiCallSuggestion(isPdf, context.model, context.requestUrl);
 	}
@@ -1352,7 +1352,7 @@ export class AiClient {
 		const warnings = compatibilityFallback
 			? uniqueWarnings([
 				...params.warnings,
-				"为兼容当前 API 网关，已在重试时进一步缩短输入并简化请求结构。",
+				"为兼容当前模型网关，已在重试时进一步缩短输入并简化请求结构。",
 			])
 			: params.warnings;
 		const markdown = compatibilityFallback

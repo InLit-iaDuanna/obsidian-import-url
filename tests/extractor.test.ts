@@ -23,6 +23,29 @@ describe("extractor", () => {
 		expect(scrubbed).not.toContain("srcset=");
 	});
 
+	it("extracts images from the readable article HTML and resolves relative URLs", () => {
+		const result = extractWebpageContent(`
+			<html>
+				<head><title>Image article</title></head>
+				<body>
+					<article>
+						<figure>
+							<img src="/assets/cover.webp" alt="封面图" title="标题图">
+							<figcaption>图注文字</figcaption>
+						</figure>
+						<p>正文段落</p>
+					</article>
+				</body>
+			</html>
+		`, "https://example.com/posts/1");
+
+		expect(result.images).toHaveLength(1);
+		expect(result.images[0]?.url).toBe("https://example.com/assets/cover.webp");
+		expect(result.images[0]?.caption).toBe("图注文字");
+		expect(result.images[0]?.alt).toBe("封面图");
+		expect(result.images[0]?.downloadStatus).toBe("pending");
+	});
+
 	it("extracts short articles because Readability uses charThreshold 0", () => {
 		const result = extractWebpageContent(`
 			<html>

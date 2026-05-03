@@ -8,6 +8,8 @@ Import URL is an Obsidian community plugin that imports a public web page or dir
 
 - Import public article pages and direct PDF links
 - Extract readable content and generate a separate original-content note
+- Download article images into a vault attachment folder by default and embed local images in the original note
+- Optionally run image text recognition, disabled by default, only when a separate vision model endpoint and key are configured
 - Generate an AI structured Markdown note
 - Generate knowledge-base source records and reviewable concept candidates; pending candidates do not create graph links by default
 - Approve or reject candidates in a knowledge-base manager, and choose whether approved concepts appear in plugin-generated graph links
@@ -42,6 +44,7 @@ By default, the plugin writes only under `我的知识库`:
 - `我的知识库/状态/处理中`: temporary in-progress records.
 - `我的知识库/状态/失败记录`: failure diagnostic notes.
 - `我的知识库/状态/历史记录`: visible import history records.
+- `我的知识库/附件/图片`: downloaded web-page image attachments.
 - `我的知识库/概念库/来源`: per-import source records.
 - `我的知识库/概念库/待入库`: concept pages waiting for review.
 - `我的知识库/概念库/已入库`: approved concept pages.
@@ -90,7 +93,7 @@ Your own files do not carry `#import-url/...` tags, so they remain as the third 
 
 ## Configuration
 
-Settings are grouped into `模型接口`, `模型`, `输出`, and `抓取兜底`.
+Settings are grouped into `模型接口`, `模型`, `输出`, `图片`, and `抓取兜底`.
 
 Runtime precedence remains:
 
@@ -104,7 +107,17 @@ The plugin supports:
 - extra custom model names
 - per-model API base URL overrides
 - output, processing, failed, history, and knowledge-base folders
+- image download folder; image attachments are saved as original evidence and do not participate in concept graph edges
+- optional image text recognition; missing vision-model keys only skip recognition and do not fail the import
 - optional fallback fetchers with clear disclosure
+
+## Images and text recognition
+
+- Web-page body images are saved by default to `我的知识库/附件/图片`, and original notes use local `![[...]]` embeds.
+- Icons, avatars, emoji, ads, tiny decorations, and invalid URLs are skipped quietly; actual body-image download errors are listed in the original note.
+- Image text recognition is off by default. When enabled, it only processes downloaded body images, with a default maximum of 8 images per import.
+- The main organizing model still receives text Markdown, image alt/caption metadata, and optional text-recognition output; raw images are not sent through the DeepSeek text organizing path.
+- Image text recognition uses a separate vision model endpoint and secret name so it does not silently reuse the main model key.
 
 ## Platform support
 

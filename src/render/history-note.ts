@@ -75,7 +75,7 @@ export function renderHistoryNote(entry: ImportHistoryEntry): string {
 		"",
 		`- URL：${entry.url}`,
 		`- 站点：${entry.host}`,
-		`- API 地址：${entry.apiBaseUrl}`,
+		`- 接口地址：${entry.apiBaseUrl}`,
 		`- 模型：${entry.model}`,
 		`- 提交时间：${entry.submittedAt}`,
 		"",

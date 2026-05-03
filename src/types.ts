@@ -2,6 +2,7 @@ export type SourceType = "webpage" | "pdf";
 export type JobStatus = "processing" | "complete" | "failed";
 export type FailureStage = "preflight" | "fetch" | "extract" | "ai_call" | "ai_parse" | "save";
 export type JobProgressStage = "queued" | "preflight" | "fetching" | "extracting" | "ai_call" | "saving" | "complete" | "failed";
+export type ImageDownloadStatus = "pending" | "downloaded" | "failed" | "skipped";
 
 export interface ModelApiBaseUrlRule {
 	model: string;
@@ -25,6 +26,13 @@ export interface ImportUrlPluginSettings {
 	wikiCandidatesFolder: string;
 	wikiConceptsFolder: string;
 	wikiIndexPath: string;
+	imageDownloadEnabled: boolean;
+	imageAttachmentFolder: string;
+	imageOcrEnabled: boolean;
+	imageOcrApiBaseUrl: string;
+	imageOcrModel: string;
+	imageOcrSecretName: string;
+	imageOcrMaxImages: number;
 	defaultLanguage: string;
 	fetchTimeoutMs: number;
 	aiTimeoutMs: number;
@@ -83,6 +91,18 @@ export interface WikiConceptDraft {
 	confidence: number;
 }
 
+export interface WebpageImage {
+	index: number;
+	url: string;
+	alt: string;
+	title: string;
+	caption: string;
+	localPath?: string;
+	downloadStatus?: ImageDownloadStatus;
+	ocrText?: string;
+	warning?: string;
+}
+
 export interface FailureInfo {
 	stage: FailureStage;
 	errorMessage: string;
@@ -113,6 +133,7 @@ export interface WebpageExtractionResult {
 	byline: string;
 	excerpt: string;
 	markdown: string;
+	images: WebpageImage[];
 	warnings: string[];
 }
 

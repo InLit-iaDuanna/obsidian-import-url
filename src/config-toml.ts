@@ -22,6 +22,13 @@ export interface ImportUrlConfigToml {
 	wikiCandidatesFolder?: string;
 	wikiConceptsFolder?: string;
 	wikiIndexPath?: string;
+	imageDownloadEnabled?: boolean;
+	imageAttachmentFolder?: string;
+	imageOcrEnabled?: boolean;
+	imageOcrApiBaseUrl?: string;
+	imageOcrModel?: string;
+	imageOcrSecretName?: string;
+	imageOcrMaxImages?: number;
 }
 
 interface ModelProviderConfig {
@@ -155,6 +162,20 @@ export function parseImportUrlConfigToml(content: string): ImportUrlConfigToml {
 				result.modelReasoningEffort = value;
 			} else if (key === "disable_response_storage" && typeof value === "boolean") {
 				result.disableResponseStorage = value;
+			} else if (key === "image_download_enabled" && typeof value === "boolean") {
+				result.imageDownloadEnabled = value;
+			} else if (key === "image_attachment_folder" && typeof value === "string") {
+				result.imageAttachmentFolder = value;
+			} else if (key === "image_ocr_enabled" && typeof value === "boolean") {
+				result.imageOcrEnabled = value;
+			} else if (key === "image_ocr_api_base_url" && typeof value === "string") {
+				result.imageOcrApiBaseUrl = value;
+			} else if (key === "image_ocr_model" && typeof value === "string") {
+				result.imageOcrModel = value;
+			} else if (key === "image_ocr_secret_name" && typeof value === "string") {
+				result.imageOcrSecretName = value;
+			} else if (key === "image_ocr_max_images" && typeof value === "number") {
+				result.imageOcrMaxImages = value;
 			}
 			continue;
 		}
@@ -201,6 +222,24 @@ export function parseImportUrlConfigToml(content: string): ImportUrlConfigToml {
 				result.wikiIndexPath = value;
 			}
 		}
+
+		if (currentSection === "images") {
+			if (key === "download_enabled" && typeof value === "boolean") {
+				result.imageDownloadEnabled = value;
+			} else if (key === "attachment_folder" && typeof value === "string") {
+				result.imageAttachmentFolder = value;
+			} else if (key === "ocr_enabled" && typeof value === "boolean") {
+				result.imageOcrEnabled = value;
+			} else if (key === "ocr_api_base_url" && typeof value === "string") {
+				result.imageOcrApiBaseUrl = value;
+			} else if (key === "ocr_model" && typeof value === "string") {
+				result.imageOcrModel = value;
+			} else if (key === "ocr_secret_name" && typeof value === "string") {
+				result.imageOcrSecretName = value;
+			} else if (key === "ocr_max_images" && typeof value === "number") {
+				result.imageOcrMaxImages = value;
+			}
+		}
 	}
 
 	const selectedProvider = getModelProviderConfig(providers, result.modelProvider);
@@ -217,7 +256,7 @@ export function parseImportUrlConfigToml(content: string): ImportUrlConfigToml {
 	return result;
 }
 
-export function renderDefaultConfigToml(settings: Pick<ImportUrlPluginSettings, "apiBaseUrl" | "model" | "outputFolder" | "originalFolder" | "processingFolder" | "failedFolder" | "historyFolder" | "wikiFolder" | "wikiSourcesFolder" | "wikiCandidatesFolder" | "wikiConceptsFolder" | "wikiIndexPath">): string {
+export function renderDefaultConfigToml(settings: Pick<ImportUrlPluginSettings, "apiBaseUrl" | "model" | "outputFolder" | "originalFolder" | "processingFolder" | "failedFolder" | "historyFolder" | "wikiFolder" | "wikiSourcesFolder" | "wikiCandidatesFolder" | "wikiConceptsFolder" | "wikiIndexPath" | "imageDownloadEnabled" | "imageAttachmentFolder" | "imageOcrEnabled" | "imageOcrApiBaseUrl" | "imageOcrModel" | "imageOcrSecretName" | "imageOcrMaxImages">): string {
 	return [
 		"# 导入 URL 配置文件",
 		"# 这个文件放在 Vault 里，方便你直接编辑。",
@@ -249,6 +288,15 @@ export function renderDefaultConfigToml(settings: Pick<ImportUrlPluginSettings, 
 		`candidates_folder = "${settings.wikiCandidatesFolder}"`,
 		`concepts_folder = "${settings.wikiConceptsFolder}"`,
 		`index_path = "${settings.wikiIndexPath}"`,
+		"",
+		"[images]",
+		`download_enabled = ${settings.imageDownloadEnabled ? "true" : "false"}`,
+		`attachment_folder = "${settings.imageAttachmentFolder}"`,
+		`ocr_enabled = ${settings.imageOcrEnabled ? "true" : "false"}`,
+		`ocr_api_base_url = "${settings.imageOcrApiBaseUrl}"`,
+		`ocr_model = "${settings.imageOcrModel}"`,
+		`ocr_secret_name = "${settings.imageOcrSecretName}"`,
+		`ocr_max_images = ${settings.imageOcrMaxImages}`,
 		"",
 	].join("\n");
 }
@@ -366,6 +414,28 @@ export function applyConfigTomlOverrides(
 	}
 	if (config.wikiIndexPath?.trim()) {
 		next.wikiIndexPath = config.wikiIndexPath.trim();
+	}
+
+	if (typeof config.imageDownloadEnabled === "boolean") {
+		next.imageDownloadEnabled = config.imageDownloadEnabled;
+	}
+	if (config.imageAttachmentFolder?.trim()) {
+		next.imageAttachmentFolder = config.imageAttachmentFolder.trim();
+	}
+	if (typeof config.imageOcrEnabled === "boolean") {
+		next.imageOcrEnabled = config.imageOcrEnabled;
+	}
+	if (config.imageOcrApiBaseUrl?.trim()) {
+		next.imageOcrApiBaseUrl = config.imageOcrApiBaseUrl.trim();
+	}
+	if (config.imageOcrModel?.trim()) {
+		next.imageOcrModel = config.imageOcrModel.trim();
+	}
+	if (config.imageOcrSecretName?.trim()) {
+		next.imageOcrSecretName = config.imageOcrSecretName.trim();
+	}
+	if (typeof config.imageOcrMaxImages === "number" && Number.isFinite(config.imageOcrMaxImages) && config.imageOcrMaxImages > 0) {
+		next.imageOcrMaxImages = Math.floor(config.imageOcrMaxImages);
 	}
 
 	return next;
