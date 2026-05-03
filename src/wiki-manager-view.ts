@@ -1,23 +1,17 @@
 import {ItemView, Notice, WorkspaceLeaf} from "obsidian";
+import {ApplyGraphColorGroupsResult, GraphColorRule, IMPORT_URL_GRAPH_COLOR_RULES} from "./graph-colors";
 import {WikiCandidateOverview, WikiConceptOverview, WikiConceptSortMode, WikiOverview} from "./wiki-artifacts";
 
 export const WIKI_MANAGER_VIEW_TYPE = "import-url-wiki-manager";
 
 type WikiManagerPanel = "pending" | "approved";
 
-interface GraphGroupRule {
-	label: string;
-	query: string;
-	description: string;
-	tone: "concept" | "candidate" | "article" | "original" | "status" | "own";
-	copyable: boolean;
-}
-
 interface WikiManagerViewHandlers {
 	loadOverview: (sortMode: WikiConceptSortMode) => Promise<WikiOverview>;
 	approveCandidate: (path: string, graphVisible: boolean) => Promise<void>;
 	rejectCandidate: (path: string) => Promise<void>;
 	setConceptGraphVisibility: (path: string, graphVisible: boolean) => Promise<void>;
+	applyGraphColorGroups: () => Promise<ApplyGraphColorGroupsResult>;
 	cleanupLegacyGraphLinks: () => Promise<number>;
 	rebuildConceptGraph: () => Promise<{cleanedFiles: number; updatedConcepts: number; taggedFiles: number}>;
 	openPath: (path: string) => Promise<boolean>;
@@ -27,51 +21,6 @@ const SORT_OPTIONS: Array<{mode: WikiConceptSortMode; label: string}> = [
 	{mode: "initial", label: "首字母"},
 	{mode: "imported", label: "导入时间"},
 	{mode: "links", label: "链接次数"},
-];
-
-const GRAPH_GROUP_RULES: GraphGroupRule[] = [
-	{
-		label: "已入库概念",
-		query: "tag:#import-url/concept",
-		description: "正式概念页。建议使用最醒目的颜色。",
-		tone: "concept",
-		copyable: true,
-	},
-	{
-		label: "待入库候选",
-		query: "tag:#import-url/candidate",
-		description: "还没有批准的候选概念。建议和正式概念分开。",
-		tone: "candidate",
-		copyable: true,
-	},
-	{
-		label: "AI 整理成文",
-		query: "tag:#import-url/article",
-		description: "模型整理后的结构化知识库笔记。",
-		tone: "article",
-		copyable: true,
-	},
-	{
-		label: "原文",
-		query: "tag:#import-url/original",
-		description: "抓取到的网页或 PDF 原文笔记。建议使用低饱和颜色。",
-		tone: "original",
-		copyable: true,
-	},
-	{
-		label: "来源和状态",
-		query: "tag:#import-url/source OR tag:#import-url/history OR tag:#import-url/processing OR tag:#import-url/failed OR tag:#import-url/index",
-		description: "来源记录、导入历史、处理中和失败记录。建议使用很淡的颜色或过滤掉。",
-		tone: "status",
-		copyable: true,
-	},
-	{
-		label: "我的手写文件",
-		query: "默认颜色",
-		description: "插件不会给你的手写笔记加 import-url 标签；它们会自然保留 Obsidian 图谱默认颜色。",
-		tone: "own",
-		copyable: false,
-	},
 ];
 
 function formatDate(value: string): string {
@@ -217,20 +166,23 @@ export class WikiManagerView extends ItemView {
 	private renderGraphGroupGuide(parentEl: HTMLElement): void {
 		const guideEl = parentEl.createDiv({cls: "import-url-wiki-graph-guide"});
 		const headerEl = guideEl.createDiv({cls: "import-url-wiki-graph-guide-header"});
-		headerEl.createEl("h3", {text: "图谱颜色分组"});
+		const titleRowEl = headerEl.createDiv({cls: "import-url-wiki-graph-guide-title-row"});
+		titleRowEl.createEl("h3", {text: "图谱颜色分组"});
+		createButton(titleRowEl, "应用到 Obsidian 图谱", () => this.handleApplyGraphColorGroups(), "is-primary");
 		headerEl.createDiv({
 			cls: "import-url-wiki-help",
-			text: "在 Obsidian 图谱的分组里添加这些规则，就能区分已入库概念、待入库候选、AI 整理成文、原文和状态文件。",
+			text: "点击应用后，插件会直接写入当前库的图谱配置文件，区分已入库概念、待入库候选、AI 整理成文、原文、状态文件和你的手写文件。",
 		});
 
 		const rulesEl = guideEl.createDiv({cls: "import-url-wiki-graph-rules"});
-		for (const rule of GRAPH_GROUP_RULES) {
+		for (const rule of IMPORT_URL_GRAPH_COLOR_RULES) {
 			this.renderGraphGroupRule(rulesEl, rule);
 		}
 	}
 
-	private renderGraphGroupRule(parentEl: HTMLElement, rule: GraphGroupRule): void {
+	private renderGraphGroupRule(parentEl: HTMLElement, rule: GraphColorRule): void {
 		const ruleEl = parentEl.createDiv({cls: `import-url-wiki-graph-rule is-${rule.tone}`});
+		ruleEl.style.setProperty("--import-url-graph-rule-color", rule.color);
 		const mainEl = ruleEl.createDiv({cls: "import-url-wiki-graph-rule-main"});
 		const titleEl = mainEl.createDiv({cls: "import-url-wiki-graph-rule-title"});
 		titleEl.createEl("span", {cls: `import-url-wiki-color-dot is-${rule.tone}`});
@@ -247,6 +199,16 @@ export class WikiManagerView extends ItemView {
 					copied ? 2500 : 7000,
 				);
 			}, "is-muted");
+		}
+	}
+
+	private async handleApplyGraphColorGroups(): Promise<void> {
+		try {
+			const result = await this.handlers.applyGraphColorGroups();
+			new Notice(formatApplyGraphColorGroupsNotice(result), 6000);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			new Notice(`应用图谱颜色失败：${message}`, 7000);
 		}
 	}
 
@@ -421,4 +383,8 @@ export class WikiManagerView extends ItemView {
 			new Notice(`操作失败：${message}`, 6000);
 		}
 	}
+}
+
+export function formatApplyGraphColorGroupsNotice(result: ApplyGraphColorGroupsResult): string {
+	return `已写入 ${result.total} 个图谱颜色分组：新增 ${result.added} 个，更新 ${result.updated} 个，保留 ${result.preserved} 个原有分组。请重新打开关系图谱查看颜色。`;
 }

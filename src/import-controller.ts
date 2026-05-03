@@ -11,6 +11,7 @@ import {DEFAULT_SETTINGS, readApiKeyValue} from "./settings";
 import {UserInputError} from "./types";
 import type {ImportHistoryEntry, ImportUrlPluginSettings, JobProgressEvent, JobRunResult} from "./types";
 import {applyConfigTomlOverrides, readImportUrlConfigToml, renderDefaultConfigToml, updateConfigTomlModel} from "./config-toml";
+import {ApplyGraphColorGroupsResult, applyImportUrlGraphColorGroups} from "./graph-colors";
 import {
 	approveActiveWikiCandidate,
 	approveWikiCandidateByPath,
@@ -159,6 +160,10 @@ export class ImportController {
 	async rebuildWikiConceptGraph(): Promise<{cleanedFiles: number; updatedConcepts: number; taggedFiles: number}> {
 		const effectiveSettings = await this.refreshEffectiveSettings();
 		return rebuildWikiConceptGraph(this.plugin.app, effectiveSettings);
+	}
+
+	async applyGraphColorGroups(): Promise<ApplyGraphColorGroupsResult> {
+		return applyImportUrlGraphColorGroups(this.plugin.app);
 	}
 
 	async approveCurrentWikiCandidate(): Promise<void> {

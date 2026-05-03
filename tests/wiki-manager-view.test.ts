@@ -1,6 +1,7 @@
 import {WorkspaceLeaf} from "obsidian";
 import {describe, expect, it, vi} from "vitest";
 import {WikiManagerView} from "../src/wiki-manager-view";
+import {FAKE_CONFIG_DIR} from "./helpers";
 
 function createOverview() {
 	return {
@@ -38,6 +39,7 @@ describe("wiki manager view", () => {
 			approveCandidate,
 			rejectCandidate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
 			setConceptGraphVisibility: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+			applyGraphColorGroups: vi.fn<() => Promise<{graphPath: string; added: number; updated: number; unchanged: number; total: number; preserved: number}>>().mockResolvedValue({graphPath: `${FAKE_CONFIG_DIR}/graph.json`, added: 6, updated: 0, unchanged: 0, total: 6, preserved: 0}),
 			cleanupLegacyGraphLinks: vi.fn<() => Promise<number>>().mockResolvedValue(0),
 			rebuildConceptGraph: vi.fn<() => Promise<{cleanedFiles: number; updatedConcepts: number; taggedFiles: number}>>().mockResolvedValue({cleanedFiles: 0, updatedConcepts: 0, taggedFiles: 0}),
 			openPath: vi.fn<() => Promise<boolean>>().mockResolvedValue(true),
@@ -47,11 +49,12 @@ describe("wiki manager view", () => {
 
 		expect(view.contentEl.textContent).toContain("候选概念");
 		expect(view.contentEl.textContent).toContain("图谱颜色分组");
+		expect(view.contentEl.textContent).toContain("应用到 Obsidian 图谱");
 		expect(view.contentEl.textContent).toContain("已入库概念");
 		expect(view.contentEl.textContent).toContain("待入库候选");
 		expect(view.contentEl.textContent).toContain("tag:#import-url/concept");
 		expect(view.contentEl.textContent).toContain("tag:#import-url/candidate");
-		expect(view.contentEl.textContent).toContain("默认颜色");
+		expect(view.contentEl.textContent).toContain("-tag:#import-url/generated");
 		expect(view.contentEl.textContent).toContain("批准后创建正式概念页");
 		expect(view.contentEl.querySelector(".import-url-wiki-meta-grid")?.textContent).toContain("链接次数2");
 		const graphSwitch = view.contentEl.querySelector<HTMLInputElement>(".import-url-wiki-switch input");

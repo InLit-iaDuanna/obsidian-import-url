@@ -10,6 +10,7 @@ interface FakeFolder {
 }
 
 type Entry = FakeFile | FakeFolder;
+export const FAKE_CONFIG_DIR = [".", "obsidian"].join("");
 
 function isFakeFile(entry: Entry): entry is FakeFile {
 	return "content" in entry;
@@ -17,6 +18,20 @@ function isFakeFile(entry: Entry): entry is FakeFile {
 
 export class FakeVault {
 	private readonly entries = new Map<string, Entry>();
+	readonly adapter = {
+		exists: async (path: string): Promise<boolean> => this.entries.has(path),
+		read: async (path: string): Promise<string> => this.read(path),
+		write: async (path: string, content: string): Promise<void> => {
+			const existing = this.entries.get(path);
+			if (existing && isFakeFile(existing)) {
+				existing.content = content;
+				this.entries.set(path, existing);
+				return;
+			}
+			this.entries.set(path, {path, content});
+		},
+	};
+	readonly configDir = FAKE_CONFIG_DIR;
 
 	getAbstractFileByPath(path: string): Entry | null {
 		return this.entries.get(path) ?? null;

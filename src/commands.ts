@@ -1,4 +1,5 @@
 import {Notice} from "obsidian";
+import {ApplyGraphColorGroupsResult} from "./graph-colors";
 import type ImportUrlPlugin from "./main";
 
 interface ImportUrlCommandHandlers {
@@ -6,6 +7,7 @@ interface ImportUrlCommandHandlers {
 	openConfigToml: () => Promise<void>;
 	openWikiIndex: () => Promise<void>;
 	openWikiManager: () => Promise<void>;
+	applyGraphColorGroups: () => Promise<ApplyGraphColorGroupsResult>;
 	cleanupLegacyGraphLinks: () => Promise<number>;
 	rebuildConceptGraph: () => Promise<{cleanedFiles: number; updatedConcepts: number; taggedFiles: number}>;
 	approveCurrentWikiCandidate: () => Promise<void>;
@@ -74,6 +76,14 @@ export function registerImportUrlCommands(
 	});
 
 	plugin.addCommand({
+		id: "apply-wiki-graph-color-groups",
+		name: "应用知识库图谱颜色",
+		callback: () => {
+			void applyGraphColorGroupsWithNotice(handlers);
+		},
+	});
+
+	plugin.addCommand({
 		id: "cleanup-legacy-wiki-links",
 		name: "清理旧图谱链接",
 		callback: () => {
@@ -105,6 +115,16 @@ async function rebuildConceptGraphWithNotice(handlers: ImportUrlCommandHandlers)
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		new Notice(`重建失败：${message}`, 6000);
+	}
+}
+
+async function applyGraphColorGroupsWithNotice(handlers: ImportUrlCommandHandlers): Promise<void> {
+	try {
+		const result = await handlers.applyGraphColorGroups();
+		new Notice(`已写入 ${result.total} 个图谱颜色分组：新增 ${result.added} 个，更新 ${result.updated} 个。请重新打开关系图谱查看颜色。`, 6000);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		new Notice(`应用图谱颜色失败：${message}`, 7000);
 	}
 }
 
