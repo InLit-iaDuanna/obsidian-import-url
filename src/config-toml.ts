@@ -305,6 +305,109 @@ function quoteTomlString(value: string): string {
 	return `"${value.replace(/\\/gu, "\\\\").replace(/"/gu, "\\\"")}"`;
 }
 
+type ImageConfigSettings = Pick<ImportUrlPluginSettings, "imageDownloadEnabled" | "imageAttachmentFolder" | "imageOcrEnabled" | "imageOcrApiBaseUrl" | "imageOcrModel" | "imageOcrSecretName" | "imageOcrMaxImages">;
+
+function getTomlSectionName(rawLine: string): string | null {
+	const line = stripInlineComment(rawLine);
+	if (!line.startsWith("[") || !line.endsWith("]")) {
+		return null;
+	}
+	return line.slice(1, -1).trim();
+}
+
+function getTomlKey(rawLine: string): string | null {
+	const line = stripInlineComment(rawLine);
+	const separatorIndex = line.indexOf("=");
+	if (separatorIndex === -1) {
+		return null;
+	}
+
+	const key = line.slice(0, separatorIndex).trim();
+	return key || null;
+}
+
+function findTomlSectionBounds(lines: string[], sectionName: string): {start: number; end: number} | null {
+	const start = lines.findIndex((line) => getTomlSectionName(line) === sectionName);
+	if (start === -1) {
+		return null;
+	}
+
+	const nextSectionOffset = lines.slice(start + 1).findIndex((line) => getTomlSectionName(line) !== null);
+	const end = nextSectionOffset === -1 ? lines.length : start + 1 + nextSectionOffset;
+	return {start, end};
+}
+
+function getImageConfigValues(content: string, settings: ImageConfigSettings): ImageConfigSettings {
+	const parsed = parseImportUrlConfigToml(content);
+	return {
+		imageDownloadEnabled: typeof parsed.imageDownloadEnabled === "boolean" ? parsed.imageDownloadEnabled : settings.imageDownloadEnabled,
+		imageAttachmentFolder: parsed.imageAttachmentFolder?.trim() || settings.imageAttachmentFolder,
+		imageOcrEnabled: typeof parsed.imageOcrEnabled === "boolean" ? parsed.imageOcrEnabled : settings.imageOcrEnabled,
+		imageOcrApiBaseUrl: parsed.imageOcrApiBaseUrl?.trim() || settings.imageOcrApiBaseUrl,
+		imageOcrModel: parsed.imageOcrModel?.trim() || settings.imageOcrModel,
+		imageOcrSecretName: parsed.imageOcrSecretName?.trim() || settings.imageOcrSecretName,
+		imageOcrMaxImages: typeof parsed.imageOcrMaxImages === "number" && Number.isFinite(parsed.imageOcrMaxImages) && parsed.imageOcrMaxImages > 0
+			? Math.floor(parsed.imageOcrMaxImages)
+			: settings.imageOcrMaxImages,
+	};
+}
+
+function getImageConfigLines(settings: ImageConfigSettings): Array<{key: string; line: string}> {
+	return [
+		{key: "download_enabled", line: `download_enabled = ${settings.imageDownloadEnabled ? "true" : "false"}`},
+		{key: "attachment_folder", line: `attachment_folder = ${quoteTomlString(settings.imageAttachmentFolder)}`},
+		{key: "ocr_enabled", line: `ocr_enabled = ${settings.imageOcrEnabled ? "true" : "false"}`},
+		{key: "ocr_api_base_url", line: `ocr_api_base_url = ${quoteTomlString(settings.imageOcrApiBaseUrl)}`},
+		{key: "ocr_model", line: `ocr_model = ${quoteTomlString(settings.imageOcrModel)}`},
+		{key: "ocr_secret_name", line: `ocr_secret_name = ${quoteTomlString(settings.imageOcrSecretName)}`},
+		{key: "ocr_max_images", line: `ocr_max_images = ${settings.imageOcrMaxImages}`},
+	];
+}
+
+export function ensureConfigTomlImagesSection(content: string, settings: ImageConfigSettings): string {
+	const hasTrailingNewline = /\r?\n$/u.test(content);
+	const lines = content.split(/\r?\n/u);
+	if (lines.length > 0 && lines[lines.length - 1] === "") {
+		lines.pop();
+	}
+
+	const imageValues = getImageConfigValues(content, settings);
+	const imageConfigLines = getImageConfigLines(imageValues);
+	const bounds = findTomlSectionBounds(lines, "images");
+	let nextLines: string[];
+
+	if (!bounds) {
+		nextLines = [...lines];
+		const lastLine = nextLines[nextLines.length - 1];
+		if (typeof lastLine === "string" && lastLine.trim()) {
+			nextLines.push("");
+		}
+		nextLines.push("[images]", ...imageConfigLines.map((entry) => entry.line));
+	} else {
+		const existingKeys = new Set(
+			lines.slice(bounds.start + 1, bounds.end)
+				.map(getTomlKey)
+				.filter((key): key is string => Boolean(key)),
+		);
+		const missingLines = imageConfigLines
+			.filter((entry) => !existingKeys.has(entry.key))
+			.map((entry) => entry.line);
+
+		if (missingLines.length === 0) {
+			return content;
+		}
+
+		nextLines = [
+			...lines.slice(0, bounds.end),
+			...missingLines,
+			...lines.slice(bounds.end),
+		];
+	}
+
+	const updated = nextLines.join("\n");
+	return hasTrailingNewline || content.length === 0 ? `${updated}\n` : updated;
+}
+
 function upsertRootTomlValue(lines: string[], key: string, line: string): string[] {
 	const next = [...lines];
 	const index = next.findIndex((rawLine) => {

@@ -77,6 +77,26 @@ describe("import controller", () => {
 		expect(vault.read(DEFAULT_SETTINGS.configTomlPath)).toContain("review_model = \"deepseek-v4-pro\"");
 	});
 
+	it("adds missing image config to an existing config.toml during initialization", async () => {
+		const {plugin, vault} = createPluginStub();
+		const controller = new ImportController(plugin as never);
+		await vault.create(DEFAULT_SETTINGS.configTomlPath, [
+			"model_provider = \"DeepSeek\"",
+			"model = \"deepseek-v4-flash\"",
+			"",
+			"[model_providers.DeepSeek]",
+			"base_url = \"https://api.deepseek.com\"",
+		].join("\n"));
+
+		await controller.ensureConfigTomlReady();
+
+		const content = vault.read(DEFAULT_SETTINGS.configTomlPath);
+		expect(content).toContain("model = \"deepseek-v4-flash\"");
+		expect(content).toContain("[images]");
+		expect(content).toContain("attachment_folder = \"我的知识库/附件/图片\"");
+		expect(content).toContain("ocr_max_images = 8");
+	});
+
 	it("marks stale processing entries failed before starting a replacement import", async () => {
 		const staleEntry = makeProcessingEntry();
 		const {plugin} = createPluginStub([staleEntry]);

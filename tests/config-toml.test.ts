@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {applyConfigTomlOverrides, parseImportUrlConfigToml, readImportUrlConfigToml, renderDefaultConfigToml, updateConfigTomlModel} from "../src/config-toml";
+import {applyConfigTomlOverrides, ensureConfigTomlImagesSection, parseImportUrlConfigToml, readImportUrlConfigToml, renderDefaultConfigToml, updateConfigTomlModel} from "../src/config-toml";
 import {DEFAULT_SETTINGS} from "../src/settings";
 import {createFakeApp} from "./helpers";
 
@@ -224,6 +224,55 @@ wire_api = "chat_completions"
 		expect(content).toContain("[model_providers.DeepSeek]");
 		expect(content).toContain("base_url = \"https://api.deepseek.com\"");
 		expect(content).not.toContain("gpt-5.4");
+	});
+
+	it("adds image settings to older config.toml files without changing existing sections", () => {
+		const content = ensureConfigTomlImagesSection([
+			"# 导入 URL 配置文件",
+			"model_provider = \"DeepSeek\"",
+			"model = \"deepseek-v4-flash\"",
+			"",
+			"[model_providers.DeepSeek]",
+			"base_url = \"https://api.deepseek.com\"",
+			"",
+			"[output]",
+			"articles_folder = \"我的知识库/成文\"",
+		].join("\n"), DEFAULT_SETTINGS);
+
+		expect(content).toContain("model = \"deepseek-v4-flash\"");
+		expect(content).toContain("[model_providers.DeepSeek]");
+		expect(content).toContain("[output]");
+		expect(content).toContain("[images]");
+		expect(content).toContain("download_enabled = true");
+		expect(content).toContain("attachment_folder = \"我的知识库/附件/图片\"");
+		expect(content).toContain("ocr_enabled = false");
+		expect(content).toContain("ocr_secret_name = \"import-url-image-ocr-api-key\"");
+		expect(content).toContain("ocr_max_images = 8");
+	});
+
+	it("preserves existing image settings while adding only missing image keys", () => {
+		const content = ensureConfigTomlImagesSection([
+			"model_provider = \"DeepSeek\"",
+			"",
+			"[images]",
+			"download_enabled = false",
+			"attachment_folder = \"自定义/图片\"",
+			"ocr_enabled = true",
+			"ocr_model = \"custom-vision\"",
+			"",
+			"[wiki]",
+			"enabled = true",
+		].join("\n"), DEFAULT_SETTINGS);
+
+		expect(content).toContain("download_enabled = false");
+		expect(content).toContain("attachment_folder = \"自定义/图片\"");
+		expect(content).toContain("ocr_enabled = true");
+		expect(content).toContain("ocr_model = \"custom-vision\"");
+		expect(content).toContain("ocr_api_base_url = \"\"");
+		expect(content).toContain("ocr_secret_name = \"import-url-image-ocr-api-key\"");
+		expect(content).toContain("ocr_max_images = 8");
+		expect(content).toContain("[wiki]");
+		expect(content.match(/download_enabled =/gu)).toHaveLength(1);
 	});
 
 	it("reads config files from compatible vault file objects", async () => {

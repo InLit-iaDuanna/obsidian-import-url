@@ -10,7 +10,7 @@ import {randomHexSuffix} from "./render/notes";
 import {DEFAULT_SETTINGS, readApiKeyValue, readSecretValue} from "./settings";
 import {UserInputError} from "./types";
 import type {ImportHistoryEntry, ImportUrlPluginSettings, JobProgressEvent, JobRunResult} from "./types";
-import {applyConfigTomlOverrides, readImportUrlConfigToml, renderDefaultConfigToml, updateConfigTomlModel} from "./config-toml";
+import {applyConfigTomlOverrides, ensureConfigTomlImagesSection, readImportUrlConfigToml, renderDefaultConfigToml, updateConfigTomlModel} from "./config-toml";
 import {ApplyGraphColorGroupsResult, applyImportUrlGraphColorGroups} from "./graph-colors";
 import {
 	approveActiveWikiCandidate,
@@ -266,7 +266,13 @@ export class ImportController {
 			await this.ensureFolder(folder);
 		}
 
-		if (this.plugin.app.vault.getAbstractFileByPath(configPath)) {
+		const existing = this.plugin.app.vault.getAbstractFileByPath(configPath) as TFile | null;
+		if (existing) {
+			const content = await this.readVaultFile(existing);
+			const nextContent = ensureConfigTomlImagesSection(content, this.plugin.settings);
+			if (nextContent !== content) {
+				await this.plugin.app.vault.modify(existing, nextContent);
+			}
 			return;
 		}
 
