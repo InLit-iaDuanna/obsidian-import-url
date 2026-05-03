@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest";
-import {applyConfigTomlOverrides, parseImportUrlConfigToml, renderDefaultConfigToml, updateConfigTomlModel} from "../src/config-toml";
+import {applyConfigTomlOverrides, parseImportUrlConfigToml, readImportUrlConfigToml, renderDefaultConfigToml, updateConfigTomlModel} from "../src/config-toml";
 import {DEFAULT_SETTINGS} from "../src/settings";
+import {createFakeApp} from "./helpers";
 
 describe("config toml", () => {
 	it("parses provider-style config snippets", () => {
@@ -202,5 +203,22 @@ wire_api = "chat_completions"
 		expect(content).toContain("[model_providers.DeepSeek]");
 		expect(content).toContain("base_url = \"https://api.deepseek.com\"");
 		expect(content).not.toContain("gpt-5.4");
+	});
+
+	it("reads config files from compatible vault file objects", async () => {
+		const {app, vault} = createFakeApp();
+		await vault.create("我的知识库/导入URL配置.toml", [
+			"model_provider = \"DeepSeek\"",
+			"model = \"deepseek-v4-pro\"",
+			"",
+			"[model_providers.DeepSeek]",
+			"base_url = \"https://api.deepseek.com\"",
+			"wire_api = \"chat_completions\"",
+		].join("\n"));
+
+		const parsed = await readImportUrlConfigToml(app, "我的知识库/导入URL配置.toml");
+
+		expect(parsed?.model).toBe("deepseek-v4-pro");
+		expect(parsed?.modelApiBaseUrl).toBe("https://api.deepseek.com");
 	});
 });

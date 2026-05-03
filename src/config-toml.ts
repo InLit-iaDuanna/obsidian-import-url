@@ -30,6 +30,10 @@ interface ModelProviderConfig {
 	requiresApiAuth?: boolean;
 }
 
+interface VaultReadableFile {
+	path: string;
+}
+
 const MODEL_PROVIDER_SECTION_PREFIX = "model_providers.";
 
 function unquoteTomlKey(value: string): string {
@@ -368,14 +372,14 @@ export function applyConfigTomlOverrides(
 }
 
 export async function readImportUrlConfigToml(app: App, path: string): Promise<ImportUrlConfigToml | null> {
-	const existing = app.vault.getAbstractFileByPath(path);
-	if (!(existing instanceof TFile)) {
+	const existing = app.vault.getAbstractFileByPath(path) as VaultReadableFile | null;
+	if (!existing || typeof existing.path !== "string" || !existing.path.endsWith(".toml")) {
 		return null;
 	}
 
 	const vaultWithCachedRead = app.vault as typeof app.vault & {
-		cachedRead?: (file: TFile) => Promise<string>;
-		read?: (file: TFile) => Promise<string>;
+		cachedRead?: (file: VaultReadableFile | TFile) => Promise<string>;
+		read?: (file: VaultReadableFile | TFile) => Promise<string>;
 	};
 	let content = "";
 	if (typeof vaultWithCachedRead.cachedRead === "function") {
