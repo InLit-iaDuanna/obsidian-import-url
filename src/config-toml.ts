@@ -10,7 +10,7 @@ export interface ImportUrlConfigToml {
 	disableResponseStorage?: boolean;
 	modelApiBaseUrl?: string;
 	wireApi?: string;
-	requiresOpenAiAuth?: boolean;
+	requiresApiAuth?: boolean;
 	outputFolder?: string;
 	originalFolder?: string;
 	processingFolder?: string;
@@ -207,7 +207,7 @@ export function parseImportUrlConfigToml(content: string): ImportUrlConfigToml {
 		result.wireApi = selectedProvider.wireApi;
 	}
 	if (typeof selectedProvider?.requiresApiAuth === "boolean") {
-		result.requiresOpenAiAuth = selectedProvider.requiresApiAuth;
+		result.requiresApiAuth = selectedProvider.requiresApiAuth;
 	}
 
 	return result;

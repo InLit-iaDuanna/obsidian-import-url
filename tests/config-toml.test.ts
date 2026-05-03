@@ -41,7 +41,7 @@ index_path = "我的知识库/概念库/索引.md"
 			disableResponseStorage: true,
 			modelApiBaseUrl: "https://api.deepseek.com",
 			wireApi: "chat_completions",
-			requiresOpenAiAuth: true,
+			requiresApiAuth: true,
 			outputFolder: "我的知识库/成文",
 			originalFolder: "我的知识库/原文",
 			processingFolder: "我的知识库/状态/处理中",
@@ -110,6 +110,19 @@ requires_api_auth = true
 			model: "custom-model",
 			apiBaseUrl: "https://gateway.example.com/api",
 		});
+	});
+
+	it("keeps legacy auth field parsing compatible with the generic API auth name", () => {
+		const parsed = parseImportUrlConfigToml(`
+model_provider = "LegacyGateway"
+model = "custom-model"
+
+[model_providers.LegacyGateway]
+base_url = "https://gateway.example.com/api"
+requires_openai_auth = true
+		`);
+
+		expect(parsed.requiresApiAuth).toBe(true);
 	});
 
 	it("does not let unselected provider sections override the selected provider", () => {
