@@ -46,6 +46,12 @@ describe("wiki manager view", () => {
 		await view.onOpen();
 
 		expect(view.contentEl.textContent).toContain("候选概念");
+		expect(view.contentEl.textContent).toContain("图谱颜色分组");
+		expect(view.contentEl.textContent).toContain("已入库概念");
+		expect(view.contentEl.textContent).toContain("待入库候选");
+		expect(view.contentEl.textContent).toContain("tag:#import-url/concept");
+		expect(view.contentEl.textContent).toContain("tag:#import-url/candidate");
+		expect(view.contentEl.textContent).toContain("默认颜色");
 		expect(view.contentEl.textContent).toContain("批准后创建正式概念页");
 		expect(view.contentEl.querySelector(".import-url-wiki-meta-grid")?.textContent).toContain("链接次数2");
 		const graphSwitch = view.contentEl.querySelector<HTMLInputElement>(".import-url-wiki-switch input");

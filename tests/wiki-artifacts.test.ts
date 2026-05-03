@@ -61,6 +61,8 @@ describe("wiki artifacts", () => {
 		expect(vault.read("我的知识库/概念库/待入库/2026-04-13 1234 - 核心概念.md")).toContain("graph_group: 'import-url-wiki-candidate'");
 		expect(vault.read("我的知识库/概念库/待入库/2026-04-13 1234 - 核心概念.md")).toContain("'import-url/candidate'");
 		expect(vault.read("我的知识库/概念库/索引.md")).toContain("# 知识库索引");
+		expect(vault.read("我的知识库/概念库/索引.md")).toContain("graph_group: 'import-url-status'");
+		expect(vault.read("我的知识库/概念库/索引.md")).toContain("'import-url/index'");
 		expect(vault.read("我的知识库/概念库/索引.md")).toContain("## 待入库概念");
 		expect(vault.read("我的知识库/概念库/索引.md")).toContain("## 已入库概念");
 		expect(vault.read("我的知识库/概念库/索引.md")).toContain("我的知识库/概念库/待入库/2026-04-13 1234 - 核心概念.md");

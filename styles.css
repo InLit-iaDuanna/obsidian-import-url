@@ -354,6 +354,135 @@ and available in the app when your plugin is enabled.
 	gap: 0.55rem;
 }
 
+.import-url-wiki-graph-guide {
+	display: flex;
+	flex-direction: column;
+	gap: 0.65rem;
+	padding: 0.75rem;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 8px;
+	background: var(--background-secondary);
+}
+
+.import-url-wiki-graph-guide-header {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+.import-url-wiki-graph-rules {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.55rem;
+}
+
+.import-url-wiki-graph-rule {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.55rem;
+	padding: 0.65rem;
+	border: 1px solid var(--background-modifier-border);
+	border-left-width: 4px;
+	border-radius: 8px;
+	background: var(--background-primary);
+}
+
+.import-url-wiki-graph-rule.is-concept {
+	border-left-color: var(--color-green);
+}
+
+.import-url-wiki-graph-rule.is-candidate {
+	border-left-color: var(--color-yellow, #d99f00);
+}
+
+.import-url-wiki-graph-rule.is-article {
+	border-left-color: var(--interactive-accent);
+}
+
+.import-url-wiki-graph-rule.is-original {
+	border-left-color: var(--text-faint);
+}
+
+.import-url-wiki-graph-rule.is-status {
+	border-left-color: var(--color-red);
+}
+
+.import-url-wiki-graph-rule.is-own {
+	border-left-color: var(--text-muted);
+}
+
+.import-url-wiki-graph-rule-main {
+	display: flex;
+	flex-direction: column;
+	gap: 0.2rem;
+	min-width: 0;
+}
+
+.import-url-wiki-graph-rule-title {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	font-weight: 600;
+}
+
+.import-url-wiki-color-dot {
+	width: 0.72rem;
+	height: 0.72rem;
+	border-radius: 999px;
+	background: var(--text-muted);
+	flex: 0 0 auto;
+}
+
+.import-url-wiki-color-dot.is-concept {
+	background: var(--color-green);
+}
+
+.import-url-wiki-color-dot.is-candidate {
+	background: var(--color-yellow, #d99f00);
+}
+
+.import-url-wiki-color-dot.is-article {
+	background: var(--interactive-accent);
+}
+
+.import-url-wiki-color-dot.is-original {
+	background: var(--text-faint);
+}
+
+.import-url-wiki-color-dot.is-status {
+	background: var(--color-red);
+}
+
+.import-url-wiki-color-dot.is-own {
+	background: var(--text-muted);
+}
+
+.import-url-wiki-graph-rule-description {
+	color: var(--text-muted);
+	font-size: 0.82rem;
+	line-height: 1.35;
+}
+
+.import-url-wiki-graph-query {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.45rem;
+}
+
+.import-url-wiki-graph-query code {
+	min-width: 0;
+	flex: 1 1 auto;
+	padding: 0.3rem 0.38rem;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-secondary);
+	color: var(--text-normal);
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
 .import-url-wiki-metric {
 	display: flex;
 	min-width: 0;
@@ -606,6 +735,7 @@ and available in the app when your plugin is enabled.
 	}
 
 	.import-url-wiki-summary,
+	.import-url-wiki-graph-rules,
 	.import-url-wiki-tabs {
 		grid-template-columns: 1fr;
 	}

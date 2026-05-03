@@ -995,6 +995,8 @@ export async function refreshWikiIndex(app: App, settings: ImportUrlPluginSettin
 	const lines = [
 		"---",
 		"kind: 'wiki-index'",
+		"graph_group: 'import-url-status'",
+		...renderYamlTags(["import-url/index", "import-url/generated"]),
 		`updated_at: ${quoteYaml(formatClippedAt(new Date()))}`,
 		"---",
 		"",

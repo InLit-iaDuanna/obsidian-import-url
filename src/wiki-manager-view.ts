@@ -5,6 +5,14 @@ export const WIKI_MANAGER_VIEW_TYPE = "import-url-wiki-manager";
 
 type WikiManagerPanel = "pending" | "approved";
 
+interface GraphGroupRule {
+	label: string;
+	query: string;
+	description: string;
+	tone: "concept" | "candidate" | "article" | "original" | "status" | "own";
+	copyable: boolean;
+}
+
 interface WikiManagerViewHandlers {
 	loadOverview: (sortMode: WikiConceptSortMode) => Promise<WikiOverview>;
 	approveCandidate: (path: string, graphVisible: boolean) => Promise<void>;
@@ -19,6 +27,51 @@ const SORT_OPTIONS: Array<{mode: WikiConceptSortMode; label: string}> = [
 	{mode: "initial", label: "首字母"},
 	{mode: "imported", label: "导入时间"},
 	{mode: "links", label: "链接次数"},
+];
+
+const GRAPH_GROUP_RULES: GraphGroupRule[] = [
+	{
+		label: "已入库概念",
+		query: "tag:#import-url/concept",
+		description: "正式概念页。建议使用最醒目的颜色。",
+		tone: "concept",
+		copyable: true,
+	},
+	{
+		label: "待入库候选",
+		query: "tag:#import-url/candidate",
+		description: "还没有批准的候选概念。建议和正式概念分开。",
+		tone: "candidate",
+		copyable: true,
+	},
+	{
+		label: "AI 整理成文",
+		query: "tag:#import-url/article",
+		description: "模型整理后的结构化知识库笔记。",
+		tone: "article",
+		copyable: true,
+	},
+	{
+		label: "原文",
+		query: "tag:#import-url/original",
+		description: "抓取到的网页或 PDF 原文笔记。建议使用低饱和颜色。",
+		tone: "original",
+		copyable: true,
+	},
+	{
+		label: "来源和状态",
+		query: "tag:#import-url/source OR tag:#import-url/history OR tag:#import-url/processing OR tag:#import-url/failed OR tag:#import-url/index",
+		description: "来源记录、导入历史、处理中和失败记录。建议使用很淡的颜色或过滤掉。",
+		tone: "status",
+		copyable: true,
+	},
+	{
+		label: "我的手写文件",
+		query: "默认颜色",
+		description: "插件不会给你的手写笔记加 import-url 标签；它们会自然保留 Obsidian 图谱默认颜色。",
+		tone: "own",
+		copyable: false,
+	},
 ];
 
 function formatDate(value: string): string {
@@ -45,6 +98,18 @@ function createButton(parentEl: HTMLElement, label: string, callback: () => Prom
 		void callback();
 	});
 	return buttonEl;
+}
+
+async function writeClipboardText(value: string): Promise<boolean> {
+	try {
+		if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+			return false;
+		}
+		await navigator.clipboard.writeText(value);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 function createMetric(parentEl: HTMLElement, label: string, value: string | number): void {
@@ -127,6 +192,7 @@ export class WikiManagerView extends ItemView {
 
 			bodyEl.empty();
 			this.renderSummary(bodyEl, overview);
+			this.renderGraphGroupGuide(bodyEl);
 			this.renderPanelTabs(bodyEl, overview);
 			this.renderSortBar(bodyEl);
 			if (this.activePanel === "pending") {
@@ -146,6 +212,42 @@ export class WikiManagerView extends ItemView {
 		createMetric(summaryEl, "待入库", overview.candidates.length);
 		createMetric(summaryEl, "已入库", overview.concepts.length);
 		createMetric(summaryEl, "图谱展示", overview.concepts.filter((concept) => concept.graphVisible).length);
+	}
+
+	private renderGraphGroupGuide(parentEl: HTMLElement): void {
+		const guideEl = parentEl.createDiv({cls: "import-url-wiki-graph-guide"});
+		const headerEl = guideEl.createDiv({cls: "import-url-wiki-graph-guide-header"});
+		headerEl.createEl("h3", {text: "图谱颜色分组"});
+		headerEl.createDiv({
+			cls: "import-url-wiki-help",
+			text: "在 Obsidian 图谱的分组里添加这些规则，就能区分已入库概念、待入库候选、AI 整理成文、原文和状态文件。",
+		});
+
+		const rulesEl = guideEl.createDiv({cls: "import-url-wiki-graph-rules"});
+		for (const rule of GRAPH_GROUP_RULES) {
+			this.renderGraphGroupRule(rulesEl, rule);
+		}
+	}
+
+	private renderGraphGroupRule(parentEl: HTMLElement, rule: GraphGroupRule): void {
+		const ruleEl = parentEl.createDiv({cls: `import-url-wiki-graph-rule is-${rule.tone}`});
+		const mainEl = ruleEl.createDiv({cls: "import-url-wiki-graph-rule-main"});
+		const titleEl = mainEl.createDiv({cls: "import-url-wiki-graph-rule-title"});
+		titleEl.createEl("span", {cls: `import-url-wiki-color-dot is-${rule.tone}`});
+		titleEl.createEl("span", {text: rule.label});
+		mainEl.createDiv({cls: "import-url-wiki-graph-rule-description", text: rule.description});
+
+		const queryEl = ruleEl.createDiv({cls: "import-url-wiki-graph-query"});
+		queryEl.createEl("code", {text: rule.query});
+		if (rule.copyable) {
+			createButton(queryEl, "复制规则", async () => {
+				const copied = await writeClipboardText(rule.query);
+				new Notice(
+					copied ? `已复制图谱分组规则：${rule.label}` : `复制失败，请手动使用：${rule.query}`,
+					copied ? 2500 : 7000,
+				);
+			}, "is-muted");
+		}
 	}
 
 	private renderPanelTabs(parentEl: HTMLElement, overview: WikiOverview): void {
