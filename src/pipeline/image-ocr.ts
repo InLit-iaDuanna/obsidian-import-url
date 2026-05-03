@@ -147,6 +147,39 @@ function getBaiduOcrUrl(settings: ImportUrlPluginSettings, accessToken: string):
 	return `${baseUrl}/rest/2.0/ocr/v1/general_basic?${params.toString()}`;
 }
 
+async function fetchBaiduAccessToken(
+	fetcher: Fetcher,
+	settings: ImportUrlPluginSettings,
+	apiKey: string,
+	secretKey: string,
+): Promise<{accessToken: string; requestUrl: string}> {
+	const requestUrl = getBaiduAccessTokenUrl(settings, apiKey, secretKey);
+	const response = await fetcher.postJson(requestUrl, {}, {Accept: "application/json"});
+	let payload: BaiduTokenResponse;
+	try {
+		payload = JSON.parse(response.text) as BaiduTokenResponse;
+	} catch {
+		payload = {};
+	}
+
+	if (response.status >= 400 || !payload.access_token) {
+		throw new PipelineError({
+			stage: "ai_call",
+			httpStatus: response.status,
+			errorMessage: getBaiduErrorMessage(payload, response.text),
+			suggestion: "百度访问令牌获取失败，请检查百度接口密钥和私钥。",
+			model: "baidu-ocr-general-basic",
+			apiBaseUrl: normalizeBaseUrl(settings.imageOcrApiBaseUrl, DEFAULT_BAIDU_OCR_API_BASE_URL),
+			requestUrl,
+		});
+	}
+
+	return {
+		accessToken: payload.access_token,
+		requestUrl,
+	};
+}
+
 export class ImageOcrClient {
 	constructor(
 		private readonly fetcher: Fetcher,
@@ -305,28 +338,16 @@ export class BaiduImageOcrClient {
 			return this.accessToken;
 		}
 
-		const requestUrl = getBaiduAccessTokenUrl(this.settings, this.apiKey, this.secretKey);
-		const response = await this.fetcher.postJson(requestUrl, {}, {Accept: "application/json"});
-		let payload: BaiduTokenResponse;
-		try {
-			payload = JSON.parse(response.text) as BaiduTokenResponse;
-		} catch {
-			payload = {};
-		}
-
-		if (response.status >= 400 || !payload.access_token) {
-			throw new PipelineError({
-				stage: "ai_call",
-				httpStatus: response.status,
-				errorMessage: getBaiduErrorMessage(payload, response.text),
-				suggestion: "百度 OCR access token 获取失败，请检查 API Key 和 Secret Key。",
-				model: "baidu-ocr-general-basic",
-				apiBaseUrl: normalizeBaseUrl(this.settings.imageOcrApiBaseUrl, DEFAULT_BAIDU_OCR_API_BASE_URL),
-				requestUrl,
-			});
-		}
-
-		this.accessToken = payload.access_token;
+		const result = await fetchBaiduAccessToken(this.fetcher, this.settings, this.apiKey, this.secretKey);
+		this.accessToken = result.accessToken;
 		return this.accessToken;
+	}
+
+	async testConnection(): Promise<{requestUrl: string}> {
+		const result = await fetchBaiduAccessToken(this.fetcher, this.settings, this.apiKey, this.secretKey);
+		this.accessToken = result.accessToken;
+		return {
+			requestUrl: result.requestUrl,
+		};
 	}
 }

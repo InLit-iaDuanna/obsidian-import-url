@@ -76,6 +76,7 @@ describe("settings tab", () => {
 		expect(labels).toContain("百度私钥");
 		expect(labels).toContain("百度接口密钥存储名称");
 		expect(labels).toContain("百度私钥存储名称");
+		expect(labels).toContain("测试图片文字识别");
 		expect(labels).not.toContain("视觉模型密钥");
 	});
 });

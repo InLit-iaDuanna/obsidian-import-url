@@ -53,4 +53,27 @@ describe("image OCR clients", () => {
 			}),
 		);
 	});
+
+	it("tests Baidu credentials by fetching an access token without uploading an image", async () => {
+		const postJson = vi.fn<Fetcher["postJson"]>().mockResolvedValue(createResponse(200, JSON.stringify({
+			access_token: "token-123",
+		})));
+		const postForm = vi.fn<Fetcher["postForm"]>();
+		const fetcher = {
+			postJson,
+			postForm,
+		} as unknown as Fetcher;
+		const client = new BaiduImageOcrClient(fetcher, {
+			...DEFAULT_SETTINGS,
+			imageOcrProvider: "baidu",
+			imageOcrApiBaseUrl: "https://aip.baidubce.com",
+		}, "baidu-api-key", "baidu-secret-key");
+
+		await expect(client.testConnection()).resolves.toEqual({
+			requestUrl: "https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=baidu-api-key&client_secret=baidu-secret-key",
+		});
+
+		expect(postJson).toHaveBeenCalledTimes(1);
+		expect(postForm).not.toHaveBeenCalled();
+	});
 });

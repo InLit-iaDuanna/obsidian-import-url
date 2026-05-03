@@ -11,6 +11,7 @@ import {
 } from "./model-catalog";
 import {AiClient} from "./pipeline/ai-client";
 import {Fetcher} from "./pipeline/fetcher";
+import {BaiduImageOcrClient} from "./pipeline/image-ocr";
 
 export const DEFAULT_API_SECRET_NAME = "import-url-deepseek-api-key";
 export const LEGACY_OPENAI_SECRET_NAME = "import-url-openai-api-key";
@@ -605,6 +606,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 		} else {
 			this.buildCompatibleVisionOcrSettings(containerEl);
 		}
+		this.buildImageOcrConnectionTestSetting(containerEl);
 
 		new Setting(containerEl)
 			.setName("单次最多识别图片数")
@@ -828,6 +830,54 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 						this.baiduOcrSecretKeyDraft = "";
 							new Notice("百度私钥已清除。", 3000);
 						this.display();
+					});
+			});
+	}
+
+	private buildImageOcrConnectionTestSetting(containerEl: HTMLElement): void {
+		new Setting(containerEl)
+			.setName("测试图片文字识别")
+			.setDesc("百度模式只验证能否获取访问令牌，不上传图片。兼容视觉模型模式只检查接口、模型和密钥是否齐全。")
+			.addButton((button) => {
+				button.setButtonText("测试")
+					.onClick(async () => {
+						button.setDisabled(true);
+						button.setButtonText("测试中...");
+
+						try {
+							const fetcher = new Fetcher(this.plugin.settings.fetchTimeoutMs, this.plugin.settings.aiTimeoutMs);
+							if (this.plugin.settings.imageOcrProvider === "baidu") {
+								const apiKey = (await readSecretValue(this.app, this.plugin.settings.imageOcrBaiduApiKeySecretName))?.trim();
+								const secretKey = (await readSecretValue(this.app, this.plugin.settings.imageOcrBaiduSecretKeySecretName))?.trim();
+								if (!apiKey || !secretKey) {
+									new Notice("请先保存百度接口密钥和百度私钥。", 4000);
+									return;
+								}
+
+								const client = new BaiduImageOcrClient(fetcher, this.plugin.settings, apiKey, secretKey);
+								await client.testConnection();
+								new Notice("百度图片文字识别连接成功。", 4000);
+								return;
+							}
+
+							if (!this.plugin.settings.imageOcrApiBaseUrl.trim() || !this.plugin.settings.imageOcrModel.trim()) {
+								new Notice("请先填写视觉模型接口地址和模型名称。", 4000);
+								return;
+							}
+							const apiKey = (await readSecretValue(this.app, this.plugin.settings.imageOcrSecretName))?.trim();
+							if (!apiKey) {
+								new Notice("请先保存视觉模型密钥。", 4000);
+								return;
+							}
+
+							new Notice("图片文字识别配置已保存。兼容视觉模型会在实际导入图片时测试图片输入能力。", 5000);
+						} catch (error) {
+							const message = error instanceof Error ? error.message : String(error);
+							new Notice(`图片文字识别连接失败：${message}`, 7000);
+						} finally {
+							button.setDisabled(false);
+							button.setButtonText("测试");
+						}
 					});
 			});
 	}

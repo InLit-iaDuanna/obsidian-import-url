@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-import-url",
-	"version": "1.0.7",
+	"version": "1.0.8",
 	"description": "将 URL/PDF 导入为原文笔记和基于 DeepSeek 风格模型接口整理的知识库笔记。",
 	"main": "main.js",
 	"type": "module",
