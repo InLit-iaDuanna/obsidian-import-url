@@ -189,7 +189,7 @@ wire_api = "chat_completions"
 
 	it("updates the saved default model in config.toml without touching provider sections", () => {
 		const content = updateConfigTomlModel([
-			"# Import URL 配置文件",
+			"# 导入 URL 配置文件",
 			"model_provider = \"DeepSeek\"",
 			"model = \"gpt-5.4\"",
 			"review_model = \"gpt-5.4\"",

@@ -219,7 +219,7 @@ export function parseImportUrlConfigToml(content: string): ImportUrlConfigToml {
 
 export function renderDefaultConfigToml(settings: Pick<ImportUrlPluginSettings, "apiBaseUrl" | "model" | "outputFolder" | "originalFolder" | "processingFolder" | "failedFolder" | "historyFolder" | "wikiFolder" | "wikiSourcesFolder" | "wikiCandidatesFolder" | "wikiConceptsFolder" | "wikiIndexPath">): string {
 	return [
-		"# Import URL 配置文件",
+		"# 导入 URL 配置文件",
 		"# 这个文件放在 Vault 里，方便你直接编辑。",
 		"# 修改后下次打开导入弹窗或开始导入时会自动生效。",
 		"",

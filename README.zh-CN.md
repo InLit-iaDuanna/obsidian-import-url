@@ -1,8 +1,8 @@
-# Import URL
+# 导入 URL
 
 [English README](./README.md)
 
-Import URL 是一个 Obsidian 社区插件，可以把公开网页或直链 PDF 导入到你的库中，生成原文笔记，并通过 DeepSeek 风格的模型接口生成结构化知识库笔记。
+导入 URL 是一个 Obsidian 社区插件，可以把公开网页或直链 PDF 导入到你的库中，生成原文笔记，并通过 DeepSeek 风格的模型接口生成结构化知识库笔记。
 
 ## 功能简介
 
@@ -30,7 +30,7 @@ Import URL 是一个 Obsidian 社区插件，可以把公开网页或直链 PDF 
 - `main.js`
 - `styles.css`
 
-重新加载 Obsidian，然后在 **设置 → 第三方插件 → Import URL** 中启用插件。
+重新加载 Obsidian，然后在 **设置 → 第三方插件 → 导入 URL** 中启用插件。
 
 ## 默认目录结构
 
