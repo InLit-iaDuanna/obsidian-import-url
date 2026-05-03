@@ -23,6 +23,8 @@ describe("plugin commands", () => {
 			"open-config",
 			"open-wiki-index",
 			"open-wiki-manager",
+			"rebuild-wiki-concept-graph",
+			"cleanup-legacy-wiki-links",
 			"approve-current-wiki-candidate",
 			"reject-current-wiki-candidate",
 		]);
@@ -32,6 +34,8 @@ describe("plugin commands", () => {
 			"打开配置文件",
 			"打开知识库索引",
 			"打开知识库管理",
+			"重建知识库真实关联",
+			"清理旧图谱链接",
 			"批准当前知识库候选页",
 			"拒绝当前知识库候选页",
 		]);

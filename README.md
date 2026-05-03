@@ -71,18 +71,20 @@ By default, the plugin writes only under `我的知识库`:
 Obsidian’s core graph colors are configured in **Graph → Groups**. The plugin writes stable tags so you can color groups directly:
 
 - Concepts: `tag:#import-url/concept`
+- Pending candidates: `tag:#import-url/candidate`
 - AI整理 notes: `tag:#import-url/article`
 - Original notes: `tag:#import-url/original`
-- Source/history/status notes: `tag:#import-url/source`, `tag:#import-url/history`, `tag:#import-url/processing`, `tag:#import-url/failed`
+- Source/index/history/status notes: `tag:#import-url/source`, `tag:#import-url/index`, `tag:#import-url/history`, `tag:#import-url/processing`, `tag:#import-url/failed`
 
 Your own handwritten files do not receive these tags, so they stay in the graph’s default color unless you add separate groups. The plugin also writes a `graph_group` frontmatter field for property-based search or future filtering.
 
 Recommended group order:
 
 1. `tag:#import-url/concept`: concept pages, use a strong color.
-2. `tag:#import-url/article`: AI整理 notes, use a lighter color.
-3. `tag:#import-url/original`: original source notes, use gray or low-saturation color.
-4. `tag:#import-url/source OR tag:#import-url/history OR tag:#import-url/processing OR tag:#import-url/failed`: source and status files, use a faint color or filter them out.
+2. `tag:#import-url/candidate`: pending candidates, keep separate from formal concepts.
+3. `tag:#import-url/article`: AI整理 notes, use a lighter color.
+4. `tag:#import-url/original`: original source notes, use gray or low-saturation color.
+5. `tag:#import-url/source OR tag:#import-url/index OR tag:#import-url/history OR tag:#import-url/processing OR tag:#import-url/failed`: source and status files, use a faint color or filter them out.
 
 Your own files do not carry `#import-url/...` tags, so they remain as the third category in the default graph color unless you create your own path/tag group.
 

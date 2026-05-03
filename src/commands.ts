@@ -5,6 +5,8 @@ interface ImportUrlCommandHandlers {
 	openConfigToml: () => Promise<void>;
 	openWikiIndex: () => Promise<void>;
 	openWikiManager: () => Promise<void>;
+	cleanupLegacyGraphLinks: () => Promise<number>;
+	rebuildConceptGraph: () => Promise<{cleanedFiles: number; updatedConcepts: number; taggedFiles: number}>;
 	approveCurrentWikiCandidate: () => Promise<void>;
 	rejectCurrentWikiCandidate: () => Promise<void>;
 	importClipboardUrl: () => Promise<void>;
@@ -59,6 +61,22 @@ export function registerImportUrlCommands(
 		name: "打开知识库管理",
 		callback: () => {
 			void handlers.openWikiManager();
+		},
+	});
+
+	plugin.addCommand({
+		id: "rebuild-wiki-concept-graph",
+		name: "重建知识库真实关联",
+		callback: () => {
+			void handlers.rebuildConceptGraph();
+		},
+	});
+
+	plugin.addCommand({
+		id: "cleanup-legacy-wiki-links",
+		name: "清理旧图谱链接",
+		callback: () => {
+			void handlers.cleanupLegacyGraphLinks();
 		},
 	});
 

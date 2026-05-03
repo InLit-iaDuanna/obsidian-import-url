@@ -28,6 +28,8 @@ export default class ImportUrlPlugin extends Plugin {
 			openConfigToml: () => this.getController().openConfigToml(),
 			openWikiIndex: () => this.getController().openWikiIndex(),
 			openWikiManager: () => this.getController().openWikiManager(),
+			cleanupLegacyGraphLinks: () => this.getController().cleanupLegacyConceptGraphLinks(),
+			rebuildConceptGraph: () => this.getController().rebuildWikiConceptGraph(),
 			approveCurrentWikiCandidate: () => this.getController().approveCurrentWikiCandidate(),
 			rejectCurrentWikiCandidate: () => this.getController().rejectCurrentWikiCandidate(),
 			importClipboardUrl: () => this.getController().importClipboardUrl(),

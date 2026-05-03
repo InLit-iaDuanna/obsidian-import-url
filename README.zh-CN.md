@@ -69,18 +69,20 @@ Import URL 是一个 Obsidian 社区插件，可以把公开网页或直链 PDF 
 Obsidian 原生图谱的节点颜色通过 **图谱 → 分组** 配置。插件会给生成文件写入稳定标签：
 
 - 概念页：`tag:#import-url/concept`
+- 待入库候选：`tag:#import-url/candidate`
 - AI 整理成文：`tag:#import-url/article`
 - 原文：`tag:#import-url/original`
-- 来源/历史/处理中/失败记录：`tag:#import-url/source`、`tag:#import-url/history`、`tag:#import-url/processing`、`tag:#import-url/failed`
+- 来源/索引/历史/处理中/失败记录：`tag:#import-url/source`、`tag:#import-url/index`、`tag:#import-url/history`、`tag:#import-url/processing`、`tag:#import-url/failed`
 
-建议在图谱分组里给概念页、成文、原文分别设置不同颜色；你的手写笔记没有这些标签，会自然保留为默认颜色。插件也会写入 `graph_group` frontmatter，方便你以后按属性搜索或批量筛选。
+建议在图谱分组里给已入库概念、待入库候选、成文、原文分别设置不同颜色；你的手写笔记没有这些标签，会自然保留为默认颜色。插件也会写入 `graph_group` frontmatter，方便你以后按属性搜索或批量筛选。
 
 推荐分组顺序：
 
 1. `tag:#import-url/concept`：概念页，建议用醒目的颜色。
-2. `tag:#import-url/article`：AI 整理成文，建议用较浅颜色。
-3. `tag:#import-url/original`：原文，建议用灰色或低饱和颜色。
-4. `tag:#import-url/source OR tag:#import-url/history OR tag:#import-url/processing OR tag:#import-url/failed`：来源和状态文件，建议用很淡的颜色或在图谱中过滤掉。
+2. `tag:#import-url/candidate`：待入库候选，建议和正式概念页分开。
+3. `tag:#import-url/article`：AI 整理成文，建议用较浅颜色。
+4. `tag:#import-url/original`：原文，建议用灰色或低饱和颜色。
+5. `tag:#import-url/source OR tag:#import-url/index OR tag:#import-url/history OR tag:#import-url/processing OR tag:#import-url/failed`：来源和状态文件，建议用很淡的颜色或在图谱中过滤掉。
 
 你的自有文件不带 `#import-url/...` 标签，因此会作为第三类内容保留默认颜色；如果想单独给手写笔记上色，可以再建一个路径或标签分组。
 
