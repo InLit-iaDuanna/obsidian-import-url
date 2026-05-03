@@ -39,7 +39,7 @@ describe("wiki manager view", () => {
 			rejectCandidate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
 			setConceptGraphVisibility: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
 			cleanupLegacyGraphLinks: vi.fn<() => Promise<number>>().mockResolvedValue(0),
-			rebuildConceptGraph: vi.fn<() => Promise<{cleanedFiles: number; updatedConcepts: number}>>().mockResolvedValue({cleanedFiles: 0, updatedConcepts: 0}),
+			rebuildConceptGraph: vi.fn<() => Promise<{cleanedFiles: number; updatedConcepts: number; taggedFiles: number}>>().mockResolvedValue({cleanedFiles: 0, updatedConcepts: 0, taggedFiles: 0}),
 			openPath: vi.fn<() => Promise<boolean>>().mockResolvedValue(true),
 		});
 

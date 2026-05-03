@@ -156,7 +156,7 @@ export class ImportController {
 		return cleanupLegacyConceptGraphLinks(this.plugin.app, effectiveSettings);
 	}
 
-	async rebuildWikiConceptGraph(): Promise<{cleanedFiles: number; updatedConcepts: number}> {
+	async rebuildWikiConceptGraph(): Promise<{cleanedFiles: number; updatedConcepts: number; taggedFiles: number}> {
 		const effectiveSettings = await this.refreshEffectiveSettings();
 		return rebuildWikiConceptGraph(this.plugin.app, effectiveSettings);
 	}

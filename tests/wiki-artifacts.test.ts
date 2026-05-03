@@ -354,6 +354,68 @@ describe("wiki artifacts", () => {
 		expect(pptAgent).not.toContain("无关旧链接");
 	});
 
+	it("backfills graph color metadata for old generated artifacts only", async () => {
+		const {app, vault} = createFakeApp();
+		await vault.create("我的知识库/成文/2026-04-13 1234 - AI整理 - 旧成文.md", [
+			"---",
+			"source_url: 'https://example.com/article'",
+			"source_type: 'webpage'",
+			"title: '旧成文'",
+			"tags:",
+			"  - 'custom/tag'",
+			"---",
+			"",
+			"# 旧成文",
+			"",
+			"## 待入库概念",
+			"",
+			"- 核心概念",
+		].join("\n"));
+		await vault.create("我的知识库/原文/2026-04-13 1234 - 原文 - 旧成文.md", [
+			"---",
+			"source_url: 'https://example.com/article'",
+			"source_type: 'webpage'",
+			"title: '原文 - 旧成文'",
+			"---",
+			"",
+			"# 原文",
+			"",
+			"正文",
+		].join("\n"));
+		await vault.create("我的知识库/概念库/已入库/核心概念.md", [
+			"---",
+			"kind: 'wiki-concept'",
+			"title: '核心概念'",
+			"created_at: '2026-04-13T12:34:56+08:00'",
+			"updated_at: '2026-04-13T12:34:56+08:00'",
+			"graph: 'show'",
+			"---",
+			"",
+			"# 核心概念",
+		].join("\n"));
+		await vault.create("我的知识库/手写.md", [
+			"# 手写笔记",
+			"",
+			"这篇不是插件生成的笔记。",
+		].join("\n"));
+
+		const result = await rebuildWikiConceptGraph(app, DEFAULT_SETTINGS);
+
+		expect(result.taggedFiles).toBeGreaterThanOrEqual(3);
+		const article = vault.read("我的知识库/成文/2026-04-13 1234 - AI整理 - 旧成文.md");
+		expect(article).toContain("graph_group: 'import-url-article'");
+		expect(article).toContain("'import-url/article'");
+		expect(article).toContain("'import-url/generated'");
+		expect(article).toContain("'custom/tag'");
+		const original = vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 旧成文.md");
+		expect(original).toContain("graph_group: 'import-url-original'");
+		expect(original).toContain("'import-url/original'");
+		const concept = vault.read("我的知识库/概念库/已入库/核心概念.md");
+		expect(concept).toContain("graph_group: 'import-url-concept'");
+		expect(concept).toContain("'import-url/concept'");
+		expect(vault.read("我的知识库/手写.md")).not.toContain("import-url/");
+	});
+
 	it("does not infer graph links from body co-occurrence alone", async () => {
 		const {app, vault} = createFakeApp();
 		await vault.create("我的知识库/概念库/已入库/PPT Agent.md", [

@@ -11,7 +11,7 @@ interface WikiManagerViewHandlers {
 	rejectCandidate: (path: string) => Promise<void>;
 	setConceptGraphVisibility: (path: string, graphVisible: boolean) => Promise<void>;
 	cleanupLegacyGraphLinks: () => Promise<number>;
-	rebuildConceptGraph: () => Promise<{cleanedFiles: number; updatedConcepts: number}>;
+	rebuildConceptGraph: () => Promise<{cleanedFiles: number; updatedConcepts: number; taggedFiles: number}>;
 	openPath: (path: string) => Promise<boolean>;
 }
 
@@ -199,7 +199,7 @@ export class WikiManagerView extends ItemView {
 	private async handleRebuildConceptGraph(): Promise<void> {
 		try {
 			const result = await this.handlers.rebuildConceptGraph();
-			new Notice(`图谱已重建：清理 ${result.cleanedFiles} 篇笔记，更新 ${result.updatedConcepts} 个概念。`, 5000);
+			new Notice(`图谱已重建：清理 ${result.cleanedFiles} 篇笔记，补充分组 ${result.taggedFiles} 篇，更新 ${result.updatedConcepts} 个概念。`, 5000);
 			await this.render();
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);

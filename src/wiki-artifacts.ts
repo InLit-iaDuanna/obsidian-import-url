@@ -70,6 +70,11 @@ export interface WikiOverview {
 	concepts: WikiConceptOverview[];
 }
 
+interface GraphMetadataSpec {
+	graphGroup: string;
+	tags: string[];
+}
+
 function quoteYaml(value: string): string {
 	return `'${value.replace(/'/g, "''")}'`;
 }
@@ -353,6 +358,103 @@ function upsertFrontmatterField(content: string, key: string, value: string): st
 	return content.replace(/^---\n/u, `---\n${key}: ${value}\n`);
 }
 
+function unquoteYaml(value: string): string {
+	return value.trim().replace(/^['"]?(.*?)['"]?$/u, "$1").replace(/''/gu, "'");
+}
+
+function parseInlineYamlTags(value: string): string[] {
+	const trimmed = value.trim();
+	if (!trimmed || trimmed === "[]") {
+		return [];
+	}
+
+	if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) {
+		return [unquoteYaml(trimmed)];
+	}
+
+	return trimmed.slice(1, -1)
+		.split(",")
+		.map(unquoteYaml)
+		.filter(Boolean);
+}
+
+function uniqueTags(values: string[]): string[] {
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const value of values) {
+		const trimmed = value.trim();
+		if (!trimmed || seen.has(trimmed)) {
+			continue;
+		}
+		seen.add(trimmed);
+		result.push(trimmed);
+	}
+	return result;
+}
+
+function replaceFrontmatterBody(content: string, frontmatter: string, nextFrontmatter: string): string {
+	const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/u);
+	if (!frontmatterMatch || frontmatterMatch[1] !== frontmatter) {
+		return content;
+	}
+
+	return `---\n${nextFrontmatter}\n---${content.slice(frontmatterMatch[0].length)}`;
+}
+
+function ensureFrontmatterTags(content: string, tags: string[]): string {
+	const normalizedTags = uniqueTags(tags);
+	if (normalizedTags.length === 0) {
+		return content;
+	}
+
+	const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/u);
+	if (!frontmatterMatch) {
+		return `---\n${renderYamlTags(normalizedTags).join("\n")}\n---\n\n${content}`;
+	}
+
+	const frontmatter = frontmatterMatch[1] ?? "";
+	const lines = frontmatter.split(/\r?\n/u);
+	const tagsLineIndex = lines.findIndex((line) => /^tags\s*:/u.test(line.trim()));
+	if (tagsLineIndex === -1) {
+		lines.unshift(...renderYamlTags(normalizedTags));
+		return replaceFrontmatterBody(content, frontmatter, lines.join("\n"));
+	}
+
+	const rawTagsLine = lines[tagsLineIndex] ?? "tags:";
+	const rawTagsValue = rawTagsLine.slice(rawTagsLine.indexOf(":") + 1);
+	if (rawTagsValue.trim()) {
+		const mergedTags = uniqueTags([...parseInlineYamlTags(rawTagsValue), ...normalizedTags]);
+		lines.splice(tagsLineIndex, 1, ...renderYamlTags(mergedTags));
+		return replaceFrontmatterBody(content, frontmatter, lines.join("\n"));
+	}
+
+	const existingTags: string[] = [];
+	let insertIndex = tagsLineIndex + 1;
+	while (insertIndex < lines.length) {
+		const line = lines[insertIndex] ?? "";
+		const listMatch = line.match(/^\s*-\s*(.+?)\s*$/u);
+		if (listMatch) {
+			existingTags.push(unquoteYaml(listMatch[1] ?? ""));
+			insertIndex += 1;
+			continue;
+		}
+		if (line.trim() === "" || /^\s/u.test(line)) {
+			insertIndex += 1;
+			continue;
+		}
+		break;
+	}
+
+	const existingTagSet = new Set(uniqueTags(existingTags));
+	const missingTags = normalizedTags.filter((tag) => !existingTagSet.has(tag));
+	if (missingTags.length === 0) {
+		return content;
+	}
+
+	lines.splice(insertIndex, 0, ...missingTags.map((tag) => `  - ${quoteYaml(tag)}`));
+	return replaceFrontmatterBody(content, frontmatter, lines.join("\n"));
+}
+
 function updateConceptFrontmatter(content: string, now: Date, graphVisible?: boolean): string {
 	let nextContent = upsertFrontmatterField(content, "updated_at", quoteYaml(formatClippedAt(now)));
 	nextContent = upsertFrontmatterField(nextContent, "graph_group", quoteYaml("import-url-concept"));
@@ -361,10 +463,7 @@ function updateConceptFrontmatter(content: string, now: Date, graphVisible?: boo
 	} else if (!/^graph:/imu.test(nextContent)) {
 		nextContent = upsertFrontmatterField(nextContent, "graph", quoteYaml("show"));
 	}
-	if (!/^tags:/imu.test(nextContent)) {
-		nextContent = nextContent.replace(/^---\n/u, `---\n${renderYamlTags(["import-url/concept", "import-url/generated"]).join("\n")}\n`);
-	}
-	return nextContent;
+	return ensureFrontmatterTags(nextContent, ["import-url/concept", "import-url/generated"]);
 }
 
 function listMarkdownFiles(app: App): TFile[] {
@@ -499,20 +598,129 @@ function renderConceptIndexList(items: WikiConceptOverview[]): string {
 	}).join("\n");
 }
 
+function getBasename(path: string): string {
+	return path.split("/").pop() ?? path;
+}
+
+function isPathInsideFolder(path: string, folder: string): boolean {
+	return path.startsWith(`${folder.replace(/\/+$/u, "")}/`);
+}
+
+function hasImportUrlFrontmatter(content: string): boolean {
+	const frontmatter = parseFrontmatter(content);
+	if (!frontmatter) {
+		return false;
+	}
+
+	return !!frontmatter.source_url
+		|| !!frontmatter.sourceUrl
+		|| !!frontmatter.graph_group?.startsWith("import-url")
+		|| frontmatter.type === "import_url_history"
+		|| !!frontmatter.kind?.startsWith("wiki-");
+}
+
+function isLikelyGeneratedArticle(path: string, content: string): boolean {
+	const basename = getBasename(path);
+	return /\s-\sAI整理\s-/iu.test(basename)
+		|| (hasImportUrlFrontmatter(content) && content.includes("## 待入库概念"));
+}
+
+function isLikelyGeneratedOriginal(path: string, content: string): boolean {
+	const basename = getBasename(path);
+	return /\s-\s原文\s-/iu.test(basename)
+		|| (hasImportUrlFrontmatter(content) && content.includes("# 原文"));
+}
+
 function isManagedOutputNote(path: string, settings: ImportUrlPluginSettings): boolean {
-	const outputPrefixes = [
-		`${settings.outputFolder.replace(/\/+$/u, "")}/`,
-		`${settings.originalFolder.replace(/\/+$/u, "")}/`,
-	];
 	const excludedPrefixes = [
 		settings.wikiFolder,
 		settings.processingFolder,
 		settings.failedFolder,
 		settings.historyFolder,
 	].map((folder) => `${folder.replace(/\/+$/u, "")}/`);
-	return outputPrefixes.some((prefix) => path.startsWith(prefix))
-		&& path.endsWith(".md")
+	return (
+		isPathInsideFolder(path, settings.outputFolder)
+		|| isPathInsideFolder(path, settings.originalFolder)
+	) && path.endsWith(".md")
 		&& !excludedPrefixes.some((prefix) => path.startsWith(prefix));
+}
+
+function isManagedOutputNoteWithContent(path: string, content: string, settings: ImportUrlPluginSettings): boolean {
+	if (!isManagedOutputNote(path, settings)) {
+		return false;
+	}
+
+	if (isPathInsideFolder(path, settings.outputFolder)) {
+		return isLikelyGeneratedArticle(path, content);
+	}
+
+	if (isPathInsideFolder(path, settings.originalFolder)) {
+		return isLikelyGeneratedOriginal(path, content);
+	}
+
+	return hasImportUrlFrontmatter(content);
+}
+
+function getGraphMetadataSpec(path: string, content: string, settings: ImportUrlPluginSettings): GraphMetadataSpec | null {
+	if (!path.endsWith(".md")) {
+		return null;
+	}
+
+	if (path === settings.wikiIndexPath) {
+		return {
+			graphGroup: "import-url-status",
+			tags: ["import-url/index", "import-url/generated"],
+		};
+	}
+
+	if (isPathInsideFolder(path, settings.wikiConceptsFolder)) {
+		const frontmatter = parseConceptFrontmatter(content, getFileTitleFromPath(path));
+		return frontmatter
+			? {graphGroup: "import-url-concept", tags: ["import-url/concept", "import-url/generated"]}
+			: null;
+	}
+
+	if (isPathInsideFolder(path, settings.wikiSourcesFolder)) {
+		return {graphGroup: "import-url-wiki-source", tags: ["import-url/source", "import-url/generated"]};
+	}
+
+	if (isPathInsideFolder(path, settings.wikiCandidatesFolder)) {
+		return {graphGroup: "import-url-wiki-candidate", tags: ["import-url/candidate", "import-url/generated"]};
+	}
+
+	if (isPathInsideFolder(path, settings.historyFolder)) {
+		return {graphGroup: "import-url-status", tags: ["import-url/history", "import-url/generated"]};
+	}
+
+	if (isPathInsideFolder(path, settings.processingFolder)) {
+		return {graphGroup: "import-url-status", tags: ["import-url/processing", "import-url/generated"]};
+	}
+
+	if (isPathInsideFolder(path, settings.failedFolder)) {
+		return {graphGroup: "import-url-status", tags: ["import-url/failed", "import-url/generated"]};
+	}
+
+	if (isPathInsideFolder(path, settings.outputFolder) && isManagedOutputNoteWithContent(path, content, settings)) {
+		return {graphGroup: "import-url-article", tags: ["import-url/article", "import-url/generated"]};
+	}
+
+	if (isPathInsideFolder(path, settings.originalFolder) && isManagedOutputNoteWithContent(path, content, settings)) {
+		return {graphGroup: "import-url-original", tags: ["import-url/original", "import-url/generated"]};
+	}
+
+	return null;
+}
+
+function ensureManagedArtifactGraphMetadata(content: string, path: string, settings: ImportUrlPluginSettings): string {
+	const spec = getGraphMetadataSpec(path, content, settings);
+	if (!spec) {
+		return content;
+	}
+
+	return ensureFrontmatterTags(
+		upsertFrontmatterField(content, "graph_group", quoteYaml(spec.graphGroup)),
+		spec.tags,
+	);
 }
 
 function plainConceptLine(line: string): string {
@@ -551,14 +759,8 @@ function stripAllWikilinks(content: string): string {
 	});
 }
 
-function isManagedArtifact(path: string, settings: ImportUrlPluginSettings): boolean {
-	return path === settings.wikiIndexPath
-		|| path.startsWith(`${settings.wikiSourcesFolder.replace(/\/+$/u, "")}/`)
-		|| path.startsWith(`${settings.wikiCandidatesFolder.replace(/\/+$/u, "")}/`)
-		|| path.startsWith(`${settings.historyFolder.replace(/\/+$/u, "")}/`)
-		|| path.startsWith(`${settings.processingFolder.replace(/\/+$/u, "")}/`)
-		|| path.startsWith(`${settings.failedFolder.replace(/\/+$/u, "")}/`)
-		|| isManagedOutputNote(path, settings);
+function isManagedArtifact(path: string, content: string, settings: ImportUrlPluginSettings): boolean {
+	return getGraphMetadataSpec(path, content, settings) !== null;
 }
 
 function replaceOrInsertSection(content: string, heading: string, body: string): string {
@@ -674,25 +876,32 @@ async function refreshApprovedConceptRelations(app: App, settings: ImportUrlPlug
 	return updatedConcepts;
 }
 
-export async function rebuildWikiConceptGraph(app: App, settings: ImportUrlPluginSettings): Promise<{cleanedFiles: number; updatedConcepts: number}> {
+export async function rebuildWikiConceptGraph(app: App, settings: ImportUrlPluginSettings): Promise<{cleanedFiles: number; updatedConcepts: number; taggedFiles: number}> {
 	let cleanedFiles = 0;
+	let taggedFiles = 0;
 	for (const file of listMarkdownFiles(app)) {
-		if (!isManagedArtifact(file.path, settings)) {
+		const content = await readFile(app, file);
+		if (!isManagedArtifact(file.path, content, settings)) {
 			continue;
 		}
 
-		const content = await readFile(app, file);
-		const nextContent = stripAllWikilinks(content);
+		const cleanedContent = stripAllWikilinks(content);
+		const nextContent = ensureManagedArtifactGraphMetadata(cleanedContent, file.path, settings);
 		if (nextContent !== content) {
 			await app.vault.modify(file, nextContent);
-			cleanedFiles += 1;
+			if (cleanedContent !== content) {
+				cleanedFiles += 1;
+			}
+			if (nextContent !== cleanedContent) {
+				taggedFiles += 1;
+			}
 		}
 	}
 
 	const updatedConcepts = await refreshApprovedConceptRelations(app, settings);
 
 	await refreshWikiIndex(app, settings);
-	return {cleanedFiles, updatedConcepts};
+	return {cleanedFiles, updatedConcepts, taggedFiles};
 }
 
 export async function cleanupLegacyConceptGraphLinks(app: App, settings: ImportUrlPluginSettings): Promise<number> {
