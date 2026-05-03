@@ -2,6 +2,8 @@ import {Fetcher} from "./fetcher";
 import {buildChatCompletionsApiUrl} from "./ai-client";
 import {ImportUrlPluginSettings, PipelineError, WebpageImage} from "../types";
 
+const DEFAULT_BAIDU_OCR_API_BASE_URL = "https://aip.baidubce.com";
+
 interface ChatCompletionMessagePart {
 	type?: string;
 	text?: string;
@@ -23,6 +25,22 @@ interface ChatCompletionResponse {
 	error?: {
 		message?: string;
 	};
+}
+
+interface BaiduTokenResponse {
+	access_token?: string;
+	error?: string;
+	error_description?: string;
+}
+
+interface BaiduOcrWord {
+	words?: string;
+}
+
+interface BaiduOcrResponse {
+	words_result?: BaiduOcrWord[];
+	error_code?: number;
+	error_msg?: string;
 }
 
 export interface ImageOcrResult {
@@ -92,6 +110,41 @@ function parseResultText(rawText: string): ImageOcrResult {
 	}
 
 	return {text: trimmed};
+}
+
+function normalizeBaseUrl(value: string, fallback: string): string {
+	return (value.trim() || fallback).replace(/\/+$/u, "");
+}
+
+function getBaiduErrorMessage(response: BaiduTokenResponse | BaiduOcrResponse, responseText: string): string {
+	if ("error_msg" in response && response.error_msg) {
+		return response.error_msg;
+	}
+	if ("error_description" in response && response.error_description) {
+		return response.error_description;
+	}
+	if ("error" in response && response.error) {
+		return response.error;
+	}
+	return responseText || "百度 OCR 接口返回失败。";
+}
+
+function getBaiduAccessTokenUrl(settings: ImportUrlPluginSettings, apiKey: string, secretKey: string): string {
+	const baseUrl = normalizeBaseUrl(settings.imageOcrApiBaseUrl, DEFAULT_BAIDU_OCR_API_BASE_URL);
+	const params = new URLSearchParams({
+		grant_type: "client_credentials",
+		client_id: apiKey,
+		client_secret: secretKey,
+	});
+	return `${baseUrl}/oauth/2.0/token?${params.toString()}`;
+}
+
+function getBaiduOcrUrl(settings: ImportUrlPluginSettings, accessToken: string): string {
+	const baseUrl = normalizeBaseUrl(settings.imageOcrApiBaseUrl, DEFAULT_BAIDU_OCR_API_BASE_URL);
+	const params = new URLSearchParams({
+		access_token: accessToken,
+	});
+	return `${baseUrl}/rest/2.0/ocr/v1/general_basic?${params.toString()}`;
 }
 
 export class ImageOcrClient {
@@ -186,5 +239,94 @@ export class ImageOcrClient {
 			}
 			throw error;
 		}
+	}
+}
+
+export class BaiduImageOcrClient {
+	private accessToken: string | null = null;
+
+	constructor(
+		private readonly fetcher: Fetcher,
+		private readonly settings: ImportUrlPluginSettings,
+		private readonly apiKey: string,
+		private readonly secretKey: string,
+	) {}
+
+	async ocrImage(params: {
+		imageDataUrl: string;
+		image: WebpageImage;
+		sourceUrl: string;
+		sourceTitle: string;
+	}): Promise<ImageOcrResult> {
+		const accessToken = await this.getAccessToken();
+		const requestUrl = getBaiduOcrUrl(this.settings, accessToken);
+		const imageBase64 = params.imageDataUrl.replace(/^data:[^;]+;base64,/u, "");
+		const response = await this.fetcher.postForm(requestUrl, {
+			image: imageBase64,
+			language_type: "CHN_ENG",
+			detect_direction: "true",
+			paragraph: "false",
+			probability: "false",
+		});
+
+		let payload: BaiduOcrResponse;
+		try {
+			payload = JSON.parse(response.text) as BaiduOcrResponse;
+		} catch {
+			payload = {};
+		}
+
+		if (response.status >= 400 || typeof payload.error_code === "number") {
+			throw new PipelineError({
+				stage: "ai_call",
+				httpStatus: response.status >= 400 ? response.status : payload.error_code,
+				errorMessage: getBaiduErrorMessage(payload, response.text),
+				suggestion: "百度图片文字识别接口调用失败，请检查百度 API Key、Secret Key 和 OCR 服务权限。",
+				model: "baidu-ocr-general-basic",
+				apiBaseUrl: normalizeBaseUrl(this.settings.imageOcrApiBaseUrl, DEFAULT_BAIDU_OCR_API_BASE_URL),
+				requestUrl,
+			});
+		}
+
+		const text = (payload.words_result ?? [])
+			.map((item) => item.words?.trim() ?? "")
+			.filter(Boolean)
+			.join("\n")
+			.trim();
+		if (!text) {
+			return {text: "", warning: "百度 OCR 没有识别到可见文字。"};
+		}
+
+		return {text};
+	}
+
+	private async getAccessToken(): Promise<string> {
+		if (this.accessToken) {
+			return this.accessToken;
+		}
+
+		const requestUrl = getBaiduAccessTokenUrl(this.settings, this.apiKey, this.secretKey);
+		const response = await this.fetcher.postJson(requestUrl, {}, {Accept: "application/json"});
+		let payload: BaiduTokenResponse;
+		try {
+			payload = JSON.parse(response.text) as BaiduTokenResponse;
+		} catch {
+			payload = {};
+		}
+
+		if (response.status >= 400 || !payload.access_token) {
+			throw new PipelineError({
+				stage: "ai_call",
+				httpStatus: response.status,
+				errorMessage: getBaiduErrorMessage(payload, response.text),
+				suggestion: "百度 OCR access token 获取失败，请检查 API Key 和 Secret Key。",
+				model: "baidu-ocr-general-basic",
+				apiBaseUrl: normalizeBaseUrl(this.settings.imageOcrApiBaseUrl, DEFAULT_BAIDU_OCR_API_BASE_URL),
+				requestUrl,
+			});
+		}
+
+		this.accessToken = payload.access_token;
+		return this.accessToken;
 	}
 }

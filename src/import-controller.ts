@@ -88,6 +88,8 @@ export class ImportController {
 			getSettings: () => this.effectiveSettings,
 			getApiKey: async (secretName: string) => readApiKeyValue(this.plugin.app, secretName),
 			getImageOcrApiKey: async (secretName: string) => readSecretValue(this.plugin.app, secretName),
+			getImageOcrBaiduApiKey: async (secretName: string) => readSecretValue(this.plugin.app, secretName),
+			getImageOcrBaiduSecretKey: async (secretName: string) => readSecretValue(this.plugin.app, secretName),
 			deps: {
 				onProgress: (event) => this.handleJobProgress(event),
 			},
@@ -241,6 +243,17 @@ export class ImportController {
 		}
 		this.plugin.settings.customModels = normalizeCustomModels(Array.isArray(this.plugin.settings.customModels) ? this.plugin.settings.customModels : []);
 		this.plugin.settings.modelApiBaseUrls = normalizeModelApiBaseUrls(Array.isArray(this.plugin.settings.modelApiBaseUrls) ? this.plugin.settings.modelApiBaseUrls : []);
+		if (this.plugin.settings.imageOcrProvider !== "baidu" && this.plugin.settings.imageOcrProvider !== "openai-compatible") {
+			this.plugin.settings.imageOcrProvider = DEFAULT_SETTINGS.imageOcrProvider;
+			migrated = true;
+		}
+		this.plugin.settings.imageOcrSecretName = this.plugin.settings.imageOcrSecretName?.trim() || DEFAULT_SETTINGS.imageOcrSecretName;
+		this.plugin.settings.imageOcrBaiduApiKeySecretName = this.plugin.settings.imageOcrBaiduApiKeySecretName?.trim() || DEFAULT_SETTINGS.imageOcrBaiduApiKeySecretName;
+		this.plugin.settings.imageOcrBaiduSecretKeySecretName = this.plugin.settings.imageOcrBaiduSecretKeySecretName?.trim() || DEFAULT_SETTINGS.imageOcrBaiduSecretKeySecretName;
+		if (!Number.isFinite(this.plugin.settings.imageOcrMaxImages) || this.plugin.settings.imageOcrMaxImages <= 0) {
+			this.plugin.settings.imageOcrMaxImages = DEFAULT_SETTINGS.imageOcrMaxImages;
+			migrated = true;
+		}
 		if (this.migrateLegacyDefaultModel()) {
 			migrated = true;
 		}

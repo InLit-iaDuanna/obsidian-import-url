@@ -44,11 +44,38 @@ describe("settings tab", () => {
 		expect(labels).toContain("待入库目录");
 		expect(labels).toContain("已入库目录");
 		expect(labels).toContain("下载网页图片");
+		expect(labels).toContain("图片文字识别服务");
 		expect(labels).toContain("视觉模型密钥");
 		expect(labels).toContain("浏览器渲染兜底（实验）");
 
 		const effectiveSetting = settingCtor.instances.find((item) => item.name === "当前生效配置");
 		expect(effectiveSetting?.description).toContain("deepseek-v4-flash");
 		expect(effectiveSetting?.description).toContain("https://api.deepseek.com");
+	});
+
+	it("renders Baidu text recognition settings when Baidu provider is selected", () => {
+		const settingCtor = Setting as unknown as typeof Setting & {instances: MockSetting[]};
+		settingCtor.instances = [];
+		const plugin = {
+			settings: {
+				...DEFAULT_SETTINGS,
+				imageOcrProvider: "baidu",
+				imageOcrApiBaseUrl: "https://aip.baidubce.com",
+			},
+			saveSettings: vi.fn().mockResolvedValue(undefined),
+			ensureConfigTomlReady: vi.fn().mockResolvedValue(undefined),
+			openConfigToml: vi.fn().mockResolvedValue(undefined),
+			getEffectiveSettings: vi.fn().mockResolvedValue(DEFAULT_SETTINGS),
+		} as unknown as ImportUrlPlugin;
+
+		const tab = new ImportUrlSettingTab({} as App, plugin);
+		tab.display();
+
+		const labels = settingCtor.instances.map((item) => item.name);
+		expect(labels).toContain("百度接口密钥");
+		expect(labels).toContain("百度私钥");
+		expect(labels).toContain("百度接口密钥存储名称");
+		expect(labels).toContain("百度私钥存储名称");
+		expect(labels).not.toContain("视觉模型密钥");
 	});
 });

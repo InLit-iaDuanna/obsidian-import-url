@@ -1,6 +1,6 @@
 import {App, TFile} from "obsidian";
 import {normalizeCustomModels, normalizeModelApiBaseUrls} from "./model-catalog";
-import {ImportUrlPluginSettings} from "./types";
+import {ImageOcrProvider, ImportUrlPluginSettings} from "./types";
 
 export interface ImportUrlConfigToml {
 	modelProvider?: string;
@@ -25,9 +25,12 @@ export interface ImportUrlConfigToml {
 	imageDownloadEnabled?: boolean;
 	imageAttachmentFolder?: string;
 	imageOcrEnabled?: boolean;
+	imageOcrProvider?: ImageOcrProvider;
 	imageOcrApiBaseUrl?: string;
 	imageOcrModel?: string;
 	imageOcrSecretName?: string;
+	imageOcrBaiduApiKeySecretName?: string;
+	imageOcrBaiduSecretKeySecretName?: string;
 	imageOcrMaxImages?: number;
 }
 
@@ -127,6 +130,17 @@ function parseTomlValue(rawValue: string): string | boolean | number {
 	return trimmed;
 }
 
+function normalizeImageOcrProvider(value: string): ImageOcrProvider | null {
+	const normalized = value.trim().toLowerCase();
+	if (normalized === "baidu" || normalized === "百度" || normalized === "baidu-ocr") {
+		return "baidu";
+	}
+	if (normalized === "openai-compatible" || normalized === "openai_compatible" || normalized === "vision" || normalized === "compatible") {
+		return "openai-compatible";
+	}
+	return null;
+}
+
 export function parseImportUrlConfigToml(content: string): ImportUrlConfigToml {
 	const result: ImportUrlConfigToml = {};
 	const providers = new Map<string, ModelProviderConfig>();
@@ -168,12 +182,18 @@ export function parseImportUrlConfigToml(content: string): ImportUrlConfigToml {
 				result.imageAttachmentFolder = value;
 			} else if (key === "image_ocr_enabled" && typeof value === "boolean") {
 				result.imageOcrEnabled = value;
+			} else if (key === "image_ocr_provider" && typeof value === "string") {
+				result.imageOcrProvider = normalizeImageOcrProvider(value) ?? undefined;
 			} else if (key === "image_ocr_api_base_url" && typeof value === "string") {
 				result.imageOcrApiBaseUrl = value;
 			} else if (key === "image_ocr_model" && typeof value === "string") {
 				result.imageOcrModel = value;
 			} else if (key === "image_ocr_secret_name" && typeof value === "string") {
 				result.imageOcrSecretName = value;
+			} else if (key === "image_ocr_baidu_api_key_secret_name" && typeof value === "string") {
+				result.imageOcrBaiduApiKeySecretName = value;
+			} else if (key === "image_ocr_baidu_secret_key_secret_name" && typeof value === "string") {
+				result.imageOcrBaiduSecretKeySecretName = value;
 			} else if (key === "image_ocr_max_images" && typeof value === "number") {
 				result.imageOcrMaxImages = value;
 			}
@@ -230,12 +250,18 @@ export function parseImportUrlConfigToml(content: string): ImportUrlConfigToml {
 				result.imageAttachmentFolder = value;
 			} else if (key === "ocr_enabled" && typeof value === "boolean") {
 				result.imageOcrEnabled = value;
+			} else if (key === "ocr_provider" && typeof value === "string") {
+				result.imageOcrProvider = normalizeImageOcrProvider(value) ?? undefined;
 			} else if (key === "ocr_api_base_url" && typeof value === "string") {
 				result.imageOcrApiBaseUrl = value;
 			} else if (key === "ocr_model" && typeof value === "string") {
 				result.imageOcrModel = value;
 			} else if (key === "ocr_secret_name" && typeof value === "string") {
 				result.imageOcrSecretName = value;
+			} else if (key === "ocr_baidu_api_key_secret_name" && typeof value === "string") {
+				result.imageOcrBaiduApiKeySecretName = value;
+			} else if (key === "ocr_baidu_secret_key_secret_name" && typeof value === "string") {
+				result.imageOcrBaiduSecretKeySecretName = value;
 			} else if (key === "ocr_max_images" && typeof value === "number") {
 				result.imageOcrMaxImages = value;
 			}
@@ -256,7 +282,7 @@ export function parseImportUrlConfigToml(content: string): ImportUrlConfigToml {
 	return result;
 }
 
-export function renderDefaultConfigToml(settings: Pick<ImportUrlPluginSettings, "apiBaseUrl" | "model" | "outputFolder" | "originalFolder" | "processingFolder" | "failedFolder" | "historyFolder" | "wikiFolder" | "wikiSourcesFolder" | "wikiCandidatesFolder" | "wikiConceptsFolder" | "wikiIndexPath" | "imageDownloadEnabled" | "imageAttachmentFolder" | "imageOcrEnabled" | "imageOcrApiBaseUrl" | "imageOcrModel" | "imageOcrSecretName" | "imageOcrMaxImages">): string {
+export function renderDefaultConfigToml(settings: Pick<ImportUrlPluginSettings, "apiBaseUrl" | "model" | "outputFolder" | "originalFolder" | "processingFolder" | "failedFolder" | "historyFolder" | "wikiFolder" | "wikiSourcesFolder" | "wikiCandidatesFolder" | "wikiConceptsFolder" | "wikiIndexPath" | "imageDownloadEnabled" | "imageAttachmentFolder" | "imageOcrEnabled" | "imageOcrProvider" | "imageOcrApiBaseUrl" | "imageOcrModel" | "imageOcrSecretName" | "imageOcrBaiduApiKeySecretName" | "imageOcrBaiduSecretKeySecretName" | "imageOcrMaxImages">): string {
 	return [
 		"# 导入 URL 配置文件",
 		"# 这个文件放在 Vault 里，方便你直接编辑。",
@@ -293,9 +319,12 @@ export function renderDefaultConfigToml(settings: Pick<ImportUrlPluginSettings, 
 		`download_enabled = ${settings.imageDownloadEnabled ? "true" : "false"}`,
 		`attachment_folder = "${settings.imageAttachmentFolder}"`,
 		`ocr_enabled = ${settings.imageOcrEnabled ? "true" : "false"}`,
+		`ocr_provider = "${settings.imageOcrProvider}"`,
 		`ocr_api_base_url = "${settings.imageOcrApiBaseUrl}"`,
 		`ocr_model = "${settings.imageOcrModel}"`,
 		`ocr_secret_name = "${settings.imageOcrSecretName}"`,
+		`ocr_baidu_api_key_secret_name = "${settings.imageOcrBaiduApiKeySecretName}"`,
+		`ocr_baidu_secret_key_secret_name = "${settings.imageOcrBaiduSecretKeySecretName}"`,
 		`ocr_max_images = ${settings.imageOcrMaxImages}`,
 		"",
 	].join("\n");
@@ -305,7 +334,7 @@ function quoteTomlString(value: string): string {
 	return `"${value.replace(/\\/gu, "\\\\").replace(/"/gu, "\\\"")}"`;
 }
 
-type ImageConfigSettings = Pick<ImportUrlPluginSettings, "imageDownloadEnabled" | "imageAttachmentFolder" | "imageOcrEnabled" | "imageOcrApiBaseUrl" | "imageOcrModel" | "imageOcrSecretName" | "imageOcrMaxImages">;
+type ImageConfigSettings = Pick<ImportUrlPluginSettings, "imageDownloadEnabled" | "imageAttachmentFolder" | "imageOcrEnabled" | "imageOcrProvider" | "imageOcrApiBaseUrl" | "imageOcrModel" | "imageOcrSecretName" | "imageOcrBaiduApiKeySecretName" | "imageOcrBaiduSecretKeySecretName" | "imageOcrMaxImages">;
 
 function getTomlSectionName(rawLine: string): string | null {
 	const line = stripInlineComment(rawLine);
@@ -343,9 +372,12 @@ function getImageConfigValues(content: string, settings: ImageConfigSettings): I
 		imageDownloadEnabled: typeof parsed.imageDownloadEnabled === "boolean" ? parsed.imageDownloadEnabled : settings.imageDownloadEnabled,
 		imageAttachmentFolder: parsed.imageAttachmentFolder?.trim() || settings.imageAttachmentFolder,
 		imageOcrEnabled: typeof parsed.imageOcrEnabled === "boolean" ? parsed.imageOcrEnabled : settings.imageOcrEnabled,
+		imageOcrProvider: parsed.imageOcrProvider ?? settings.imageOcrProvider,
 		imageOcrApiBaseUrl: parsed.imageOcrApiBaseUrl?.trim() || settings.imageOcrApiBaseUrl,
 		imageOcrModel: parsed.imageOcrModel?.trim() || settings.imageOcrModel,
 		imageOcrSecretName: parsed.imageOcrSecretName?.trim() || settings.imageOcrSecretName,
+		imageOcrBaiduApiKeySecretName: parsed.imageOcrBaiduApiKeySecretName?.trim() || settings.imageOcrBaiduApiKeySecretName,
+		imageOcrBaiduSecretKeySecretName: parsed.imageOcrBaiduSecretKeySecretName?.trim() || settings.imageOcrBaiduSecretKeySecretName,
 		imageOcrMaxImages: typeof parsed.imageOcrMaxImages === "number" && Number.isFinite(parsed.imageOcrMaxImages) && parsed.imageOcrMaxImages > 0
 			? Math.floor(parsed.imageOcrMaxImages)
 			: settings.imageOcrMaxImages,
@@ -357,9 +389,12 @@ function getImageConfigLines(settings: ImageConfigSettings): Array<{key: string;
 		{key: "download_enabled", line: `download_enabled = ${settings.imageDownloadEnabled ? "true" : "false"}`},
 		{key: "attachment_folder", line: `attachment_folder = ${quoteTomlString(settings.imageAttachmentFolder)}`},
 		{key: "ocr_enabled", line: `ocr_enabled = ${settings.imageOcrEnabled ? "true" : "false"}`},
+		{key: "ocr_provider", line: `ocr_provider = ${quoteTomlString(settings.imageOcrProvider)}`},
 		{key: "ocr_api_base_url", line: `ocr_api_base_url = ${quoteTomlString(settings.imageOcrApiBaseUrl)}`},
 		{key: "ocr_model", line: `ocr_model = ${quoteTomlString(settings.imageOcrModel)}`},
 		{key: "ocr_secret_name", line: `ocr_secret_name = ${quoteTomlString(settings.imageOcrSecretName)}`},
+		{key: "ocr_baidu_api_key_secret_name", line: `ocr_baidu_api_key_secret_name = ${quoteTomlString(settings.imageOcrBaiduApiKeySecretName)}`},
+		{key: "ocr_baidu_secret_key_secret_name", line: `ocr_baidu_secret_key_secret_name = ${quoteTomlString(settings.imageOcrBaiduSecretKeySecretName)}`},
 		{key: "ocr_max_images", line: `ocr_max_images = ${settings.imageOcrMaxImages}`},
 	];
 }
@@ -528,6 +563,9 @@ export function applyConfigTomlOverrides(
 	if (typeof config.imageOcrEnabled === "boolean") {
 		next.imageOcrEnabled = config.imageOcrEnabled;
 	}
+	if (config.imageOcrProvider) {
+		next.imageOcrProvider = config.imageOcrProvider;
+	}
 	if (config.imageOcrApiBaseUrl?.trim()) {
 		next.imageOcrApiBaseUrl = config.imageOcrApiBaseUrl.trim();
 	}
@@ -536,6 +574,12 @@ export function applyConfigTomlOverrides(
 	}
 	if (config.imageOcrSecretName?.trim()) {
 		next.imageOcrSecretName = config.imageOcrSecretName.trim();
+	}
+	if (config.imageOcrBaiduApiKeySecretName?.trim()) {
+		next.imageOcrBaiduApiKeySecretName = config.imageOcrBaiduApiKeySecretName.trim();
+	}
+	if (config.imageOcrBaiduSecretKeySecretName?.trim()) {
+		next.imageOcrBaiduSecretKeySecretName = config.imageOcrBaiduSecretKeySecretName.trim();
 	}
 	if (typeof config.imageOcrMaxImages === "number" && Number.isFinite(config.imageOcrMaxImages) && config.imageOcrMaxImages > 0) {
 		next.imageOcrMaxImages = Math.floor(config.imageOcrMaxImages);

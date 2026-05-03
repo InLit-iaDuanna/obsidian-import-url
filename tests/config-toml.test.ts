@@ -37,9 +37,12 @@ index_path = "我的知识库/概念库/索引.md"
 download_enabled = true
 attachment_folder = "我的知识库/附件/图片"
 ocr_enabled = true
+ocr_provider = "baidu"
 ocr_api_base_url = "https://vision.example.com/v1"
 ocr_model = "vision-model"
 ocr_secret_name = "import-url-image-ocr-api-key"
+ocr_baidu_api_key_secret_name = "baidu-api"
+ocr_baidu_secret_key_secret_name = "baidu-secret"
 ocr_max_images = 4
 		`);
 
@@ -66,9 +69,12 @@ ocr_max_images = 4
 			imageDownloadEnabled: true,
 			imageAttachmentFolder: "我的知识库/附件/图片",
 			imageOcrEnabled: true,
+			imageOcrProvider: "baidu",
 			imageOcrApiBaseUrl: "https://vision.example.com/v1",
 			imageOcrModel: "vision-model",
 			imageOcrSecretName: "import-url-image-ocr-api-key",
+			imageOcrBaiduApiKeySecretName: "baidu-api",
+			imageOcrBaiduSecretKeySecretName: "baidu-secret",
 			imageOcrMaxImages: 4,
 		});
 	});
@@ -205,7 +211,10 @@ wire_api = "chat_completions"
 		expect(content).toContain("download_enabled = true");
 		expect(content).toContain("attachment_folder = \"我的知识库/附件/图片\"");
 		expect(content).toContain("ocr_enabled = false");
+		expect(content).toContain("ocr_provider = \"openai-compatible\"");
 		expect(content).toContain("ocr_secret_name = \"import-url-image-ocr-api-key\"");
+		expect(content).toContain("ocr_baidu_api_key_secret_name = \"import-url-baidu-ocr-api-key\"");
+		expect(content).toContain("ocr_baidu_secret_key_secret_name = \"import-url-baidu-ocr-secret-key\"");
 	});
 
 	it("updates the saved default model in config.toml without touching provider sections", () => {
@@ -246,7 +255,10 @@ wire_api = "chat_completions"
 		expect(content).toContain("download_enabled = true");
 		expect(content).toContain("attachment_folder = \"我的知识库/附件/图片\"");
 		expect(content).toContain("ocr_enabled = false");
+		expect(content).toContain("ocr_provider = \"openai-compatible\"");
 		expect(content).toContain("ocr_secret_name = \"import-url-image-ocr-api-key\"");
+		expect(content).toContain("ocr_baidu_api_key_secret_name = \"import-url-baidu-ocr-api-key\"");
+		expect(content).toContain("ocr_baidu_secret_key_secret_name = \"import-url-baidu-ocr-secret-key\"");
 		expect(content).toContain("ocr_max_images = 8");
 	});
 

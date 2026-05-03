@@ -403,6 +403,62 @@ describe("job-runner", () => {
 		expect(capturedMarkdown).toContain("图片文字识别：图中文字：增长 42%");
 	});
 
+	it("uses Baidu OCR credentials when Baidu image OCR is selected", async () => {
+		const {app, vault} = createFakeApp();
+		const ocrImage = vi.fn().mockResolvedValue({text: "百度识别文字"});
+		const createBaiduImageOcrClient = vi.fn().mockReturnValue({ocrImage});
+		const fetcher = {
+			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
+			getTextUrl: vi.fn().mockResolvedValue(createResponse(
+				200,
+				"<html><head><title>Source Title</title></head><body><article><img src=\"/images/chart.webp\" alt=\"图表\"><p>正文</p></article></body></html>",
+				{"content-type": "text/html"},
+			)),
+			getImageUrl: vi.fn().mockResolvedValue({
+				status: 200,
+				text: "",
+				headers: {"content-type": "image/webp"},
+				arrayBuffer: new TextEncoder().encode("webp-bytes").buffer,
+				json: null,
+			} as RequestUrlResponse),
+		} as unknown as Fetcher;
+
+		const runner = new JobRunner({
+			app,
+			getSettings: () => ({
+				...createSettings(),
+				imageDownloadEnabled: true,
+				imageOcrEnabled: true,
+				imageOcrProvider: "baidu",
+				imageOcrApiBaseUrl: "https://aip.baidubce.com",
+			}),
+			getApiKey: async () => "sk-main",
+			getImageOcrApiKey: async () => {
+				throw new Error("should not read compatible vision key");
+			},
+			getImageOcrBaiduApiKey: async (secretName) => secretName === "import-url-baidu-ocr-api-key" ? "baidu-api-key" : null,
+			getImageOcrBaiduSecretKey: async (secretName) => secretName === "import-url-baidu-ocr-secret-key" ? "baidu-secret-key" : null,
+			deps: {
+				now: () => new Date(2026, 3, 13, 12, 34, 56),
+				randomSuffix: () => "beef",
+				createFetcher: () => fetcher,
+				createAiClient: () => ({
+					digestWebpage: vi.fn().mockResolvedValue(sampleDigest),
+					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
+				}) as unknown as AiClient,
+				createBaiduImageOcrClient,
+			},
+		});
+
+		await runner.run("https://example.com/article");
+
+		expect(createBaiduImageOcrClient).toHaveBeenCalledWith(fetcher, expect.objectContaining({
+			imageOcrProvider: "baidu",
+		}), "baidu-api-key", "baidu-secret-key");
+		expect(ocrImage).toHaveBeenCalledTimes(1);
+		expect(vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md")).toContain("百度识别文字");
+	});
+
 	it("limits image OCR calls and records a truncation warning", async () => {
 		const {app, vault} = createFakeApp();
 		const ocrImage = vi.fn().mockResolvedValue({text: "可见文字"});

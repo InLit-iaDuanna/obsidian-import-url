@@ -15,6 +15,10 @@ import {Fetcher} from "./pipeline/fetcher";
 export const DEFAULT_API_SECRET_NAME = "import-url-deepseek-api-key";
 export const LEGACY_OPENAI_SECRET_NAME = "import-url-openai-api-key";
 export const DEFAULT_DEEPSEEK_API_BASE_URL = "https://api.deepseek.com";
+export const DEFAULT_IMAGE_OCR_SECRET_NAME = "import-url-image-ocr-api-key";
+export const DEFAULT_BAIDU_OCR_API_KEY_SECRET_NAME = "import-url-baidu-ocr-api-key";
+export const DEFAULT_BAIDU_OCR_SECRET_KEY_SECRET_NAME = "import-url-baidu-ocr-secret-key";
+export const DEFAULT_BAIDU_OCR_API_BASE_URL = "https://aip.baidubce.com";
 
 interface SecretStorageLike {
 	get?: (key: string) => Promise<string | null> | string | null;
@@ -45,9 +49,12 @@ export const DEFAULT_SETTINGS: ImportUrlPluginSettings = {
 	imageDownloadEnabled: true,
 	imageAttachmentFolder: "我的知识库/附件/图片",
 	imageOcrEnabled: false,
+	imageOcrProvider: "openai-compatible",
 	imageOcrApiBaseUrl: "",
 	imageOcrModel: "",
-	imageOcrSecretName: "import-url-image-ocr-api-key",
+	imageOcrSecretName: DEFAULT_IMAGE_OCR_SECRET_NAME,
+	imageOcrBaiduApiKeySecretName: DEFAULT_BAIDU_OCR_API_KEY_SECRET_NAME,
+	imageOcrBaiduSecretKeySecretName: DEFAULT_BAIDU_OCR_SECRET_KEY_SECRET_NAME,
 	imageOcrMaxImages: 8,
 	defaultLanguage: "zh-CN",
 	fetchTimeoutMs: 30000,
@@ -142,6 +149,10 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 	private imageOcrApiBaseUrlDraft = "";
 	private imageOcrApiKeyDraft = "";
 	private imageOcrSecretDraft = "";
+	private baiduOcrApiKeyDraft = "";
+	private baiduOcrSecretKeyDraft = "";
+	private baiduOcrApiKeySecretDraft = "";
+	private baiduOcrSecretKeySecretDraft = "";
 
 	constructor(app: App, plugin: ImportUrlPlugin) {
 		super(app, plugin);
@@ -156,6 +167,10 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 		this.imageOcrApiBaseUrlDraft = this.plugin.settings.imageOcrApiBaseUrl;
 		this.imageOcrApiKeyDraft = "";
 		this.imageOcrSecretDraft = this.plugin.settings.imageOcrSecretName;
+		this.baiduOcrApiKeyDraft = "";
+		this.baiduOcrSecretKeyDraft = "";
+		this.baiduOcrApiKeySecretDraft = this.plugin.settings.imageOcrBaiduApiKeySecretName;
+		this.baiduOcrSecretKeySecretDraft = this.plugin.settings.imageOcrBaiduSecretKeySecretName;
 
 		new Setting(containerEl)
 			.setName("模型接口")
@@ -539,7 +554,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("启用图片文字识别")
-			.setDesc("仅对正文大图启用可选视觉模型文字识别。默认关闭。")
+			.setDesc("仅对正文大图启用可选文字识别。默认关闭。")
 			.addToggle((toggle) => {
 				toggle.setValue(this.plugin.settings.imageOcrEnabled)
 					.onChange(async (value) => {
@@ -549,10 +564,28 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
+			.setName("图片文字识别服务")
+			.setDesc("选择文字识别服务。百度文字识别使用接口密钥和私钥；兼容视觉模型使用单个密钥。")
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOption("openai-compatible", "兼容视觉模型")
+					.addOption("baidu", "百度文字识别")
+					.setValue(this.plugin.settings.imageOcrProvider)
+					.onChange(async (value) => {
+						this.plugin.settings.imageOcrProvider = value === "baidu" ? "baidu" : "openai-compatible";
+						if (this.plugin.settings.imageOcrProvider === "baidu" && !this.plugin.settings.imageOcrApiBaseUrl.trim()) {
+							this.plugin.settings.imageOcrApiBaseUrl = DEFAULT_BAIDU_OCR_API_BASE_URL;
+						}
+						await this.plugin.saveSettings();
+						this.display();
+					});
+			});
+
+		new Setting(containerEl)
 			.setName("视觉模型接口地址")
-			.setDesc("视觉模型接口地址。与主模型接口分开配置。")
+			.setDesc(this.plugin.settings.imageOcrProvider === "baidu" ? "百度文字识别接口地址，通常保持默认即可。" : "视觉模型接口地址。与主模型接口分开配置。")
 			.addText((text) => {
-				text.setPlaceholder("https://example.com/v1")
+				text.setPlaceholder(this.plugin.settings.imageOcrProvider === "baidu" ? DEFAULT_BAIDU_OCR_API_BASE_URL : "https://example.com/v1")
 					.setValue(this.plugin.settings.imageOcrApiBaseUrl)
 					.onChange((value) => {
 						this.imageOcrApiBaseUrlDraft = value.trim();
@@ -567,6 +600,29 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 					});
 			});
 
+		if (this.plugin.settings.imageOcrProvider === "baidu") {
+			this.buildBaiduOcrSettings(containerEl);
+		} else {
+			this.buildCompatibleVisionOcrSettings(containerEl);
+		}
+
+		new Setting(containerEl)
+			.setName("单次最多识别图片数")
+			.setDesc("避免图片太多导致成本和噪声失控。")
+			.addText((text) => {
+				text.inputEl.type = "number";
+				text.setValue(String(this.plugin.settings.imageOcrMaxImages))
+					.onChange(async (value) => {
+						const parsed = Number.parseInt(value, 10);
+						if (Number.isFinite(parsed) && parsed > 0) {
+							this.plugin.settings.imageOcrMaxImages = parsed;
+							await this.plugin.saveSettings();
+						}
+					});
+			});
+	}
+
+	private buildCompatibleVisionOcrSettings(containerEl: HTMLElement): void {
 		new Setting(containerEl)
 			.setName("视觉模型名称")
 			.setDesc("视觉模型名称，例如支持图片输入的模型。")
@@ -642,19 +698,136 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 						this.display();
 					});
 			});
+	}
+
+	private buildBaiduOcrSettings(containerEl: HTMLElement): void {
+		new Setting(containerEl)
+			.setName("百度接口密钥存储名称")
+			.setDesc("百度接口密钥在安全存储中的名称。")
+			.addText((text) => {
+				text.setPlaceholder(DEFAULT_BAIDU_OCR_API_KEY_SECRET_NAME)
+					.setValue(this.plugin.settings.imageOcrBaiduApiKeySecretName)
+					.onChange((value) => {
+						this.baiduOcrApiKeySecretDraft = value.trim();
+					});
+			})
+			.addButton((button) => {
+				button.setButtonText("保存")
+					.onClick(async () => {
+						this.plugin.settings.imageOcrBaiduApiKeySecretName = this.baiduOcrApiKeySecretDraft || DEFAULT_BAIDU_OCR_API_KEY_SECRET_NAME;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+			});
 
 		new Setting(containerEl)
-			.setName("单次最多识别图片数")
-			.setDesc("避免图片太多导致成本和噪声失控。")
+			.setName("百度私钥存储名称")
+			.setDesc("百度私钥在安全存储中的名称。")
 			.addText((text) => {
-				text.inputEl.type = "number";
-				text.setValue(String(this.plugin.settings.imageOcrMaxImages))
-					.onChange(async (value) => {
-						const parsed = Number.parseInt(value, 10);
-						if (Number.isFinite(parsed) && parsed > 0) {
-							this.plugin.settings.imageOcrMaxImages = parsed;
-							await this.plugin.saveSettings();
+				text.setPlaceholder(DEFAULT_BAIDU_OCR_SECRET_KEY_SECRET_NAME)
+					.setValue(this.plugin.settings.imageOcrBaiduSecretKeySecretName)
+					.onChange((value) => {
+						this.baiduOcrSecretKeySecretDraft = value.trim();
+					});
+			})
+			.addButton((button) => {
+				button.setButtonText("保存")
+					.onClick(async () => {
+						this.plugin.settings.imageOcrBaiduSecretKeySecretName = this.baiduOcrSecretKeySecretDraft || DEFAULT_BAIDU_OCR_SECRET_KEY_SECRET_NAME;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName("百度接口密钥")
+			.setDesc("用于百度图片文字识别，只保存在 Obsidian 安全存储中。")
+			.addText((text) => {
+				text.setPlaceholder("输入百度接口密钥")
+					.onChange((value) => {
+						this.baiduOcrApiKeyDraft = value.trim();
+					});
+				text.inputEl.type = "password";
+			})
+			.addButton((button) => {
+				button.setButtonText("保存")
+					.setCta()
+					.onClick(async () => {
+						if (!this.baiduOcrApiKeyDraft) {
+							new Notice("请先输入百度接口密钥。", 4000);
+							return;
 						}
+
+						const saved = await writeSecretValue(this.app, this.plugin.settings.imageOcrBaiduApiKeySecretName, this.baiduOcrApiKeyDraft);
+						if (!saved) {
+							new Notice("当前环境无法写入 Obsidian 安全存储。", 5000);
+							return;
+						}
+
+						this.baiduOcrApiKeyDraft = "";
+							new Notice("百度接口密钥已保存。", 3000);
+						this.display();
+					});
+			})
+			.addExtraButton((button) => {
+				button.setIcon("cross")
+					.setTooltip("清除百度接口密钥")
+					.onClick(async () => {
+						const removed = await removeSecretValue(this.app, this.plugin.settings.imageOcrBaiduApiKeySecretName);
+						if (!removed) {
+							new Notice("当前环境无法写入 Obsidian 安全存储。", 5000);
+							return;
+						}
+
+						this.baiduOcrApiKeyDraft = "";
+							new Notice("百度接口密钥已清除。", 3000);
+						this.display();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName("百度私钥")
+			.setDesc("用于换取百度访问令牌，只保存在 Obsidian 安全存储中。")
+			.addText((text) => {
+				text.setPlaceholder("输入百度私钥")
+					.onChange((value) => {
+						this.baiduOcrSecretKeyDraft = value.trim();
+					});
+				text.inputEl.type = "password";
+			})
+			.addButton((button) => {
+				button.setButtonText("保存")
+					.setCta()
+					.onClick(async () => {
+						if (!this.baiduOcrSecretKeyDraft) {
+							new Notice("请先输入百度私钥。", 4000);
+							return;
+						}
+
+						const saved = await writeSecretValue(this.app, this.plugin.settings.imageOcrBaiduSecretKeySecretName, this.baiduOcrSecretKeyDraft);
+						if (!saved) {
+							new Notice("当前环境无法写入 Obsidian 安全存储。", 5000);
+							return;
+						}
+
+						this.baiduOcrSecretKeyDraft = "";
+							new Notice("百度私钥已保存。", 3000);
+						this.display();
+					});
+			})
+			.addExtraButton((button) => {
+				button.setIcon("cross")
+					.setTooltip("清除百度私钥")
+					.onClick(async () => {
+						const removed = await removeSecretValue(this.app, this.plugin.settings.imageOcrBaiduSecretKeySecretName);
+						if (!removed) {
+							new Notice("当前环境无法写入 Obsidian 安全存储。", 5000);
+							return;
+						}
+
+						this.baiduOcrSecretKeyDraft = "";
+							new Notice("百度私钥已清除。", 3000);
+						this.display();
 					});
 			});
 	}

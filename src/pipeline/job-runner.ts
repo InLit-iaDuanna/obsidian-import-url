@@ -3,7 +3,7 @@ import {AiClient} from "./ai-client";
 import {BrowserRenderFallbackUnavailableError} from "./browser-render-fallback";
 import {extractPdfTextContent, extractSiteJsonContent, extractWebpageContent, getSiteJsonFallbackUrl, truncateMarkdown} from "./extractor";
 import {Fetcher, TimeoutError} from "./fetcher";
-import {ImageOcrClient} from "./image-ocr";
+import {BaiduImageOcrClient, ImageOcrClient} from "./image-ocr";
 import {validateUrl, parseHttpUrl} from "./url-validator";
 import {
 	FailureInfo,
@@ -40,10 +40,13 @@ interface JobRunnerOptions {
 	getSettings: () => ImportUrlPluginSettings;
 	getApiKey: (secretName: string) => Promise<string | null>;
 	getImageOcrApiKey?: (secretName: string) => Promise<string | null>;
+	getImageOcrBaiduApiKey?: (secretName: string) => Promise<string | null>;
+	getImageOcrBaiduSecretKey?: (secretName: string) => Promise<string | null>;
 	deps?: {
 		createFetcher?: (settings: ImportUrlPluginSettings) => Fetcher;
 		createAiClient?: (fetcher: Fetcher, settings: ImportUrlPluginSettings, apiKey: string) => AiClient;
 		createImageOcrClient?: (fetcher: Fetcher, settings: ImportUrlPluginSettings, apiKey: string) => ImageOcrClient | null;
+		createBaiduImageOcrClient?: (fetcher: Fetcher, settings: ImportUrlPluginSettings, apiKey: string, secretKey: string) => BaiduImageOcrClient | null;
 		onProgress?: (event: JobProgressEvent) => Promise<void> | void;
 		now?: () => Date;
 		randomSuffix?: () => string;
@@ -201,6 +204,8 @@ export class JobRunner {
 	private readonly getSettings: () => ImportUrlPluginSettings;
 	private readonly getApiKey: (secretName: string) => Promise<string | null>;
 	private readonly getImageOcrApiKey?: (secretName: string) => Promise<string | null>;
+	private readonly getImageOcrBaiduApiKey?: (secretName: string) => Promise<string | null>;
+	private readonly getImageOcrBaiduSecretKey?: (secretName: string) => Promise<string | null>;
 	private readonly deps: JobRunnerOptions["deps"];
 	private activeRun: Promise<JobRunResult> | null = null;
 
@@ -209,6 +214,8 @@ export class JobRunner {
 		this.getSettings = options.getSettings;
 		this.getApiKey = options.getApiKey;
 		this.getImageOcrApiKey = options.getImageOcrApiKey;
+		this.getImageOcrBaiduApiKey = options.getImageOcrBaiduApiKey;
+		this.getImageOcrBaiduSecretKey = options.getImageOcrBaiduSecretKey;
 		this.deps = options.deps;
 	}
 
@@ -1134,7 +1141,10 @@ export class JobRunner {
 		sourceTitle: string;
 		images: ImageDownloadResult[];
 	}): Promise<OcrBlock[]> {
-		if (!input.settings.imageOcrEnabled || !input.settings.imageOcrApiBaseUrl.trim() || !input.settings.imageOcrModel.trim()) {
+		if (!input.settings.imageOcrEnabled) {
+			return [];
+		}
+		if (input.settings.imageOcrProvider !== "baidu" && (!input.settings.imageOcrApiBaseUrl.trim() || !input.settings.imageOcrModel.trim())) {
 			return [];
 		}
 
@@ -1143,37 +1153,19 @@ export class JobRunner {
 			return [];
 		}
 
-		if (!this.getImageOcrApiKey) {
+		const clientResult = await this.createImageOcrClient(input.fetcher, input.settings);
+		if ("warning" in clientResult) {
 			return [{
 				text: "",
-				warning: "图片文字识别已跳过：未提供视觉模型密钥读取器。",
+				warning: clientResult.warning,
 			}];
 		}
 
-		const secret = input.settings.imageOcrSecretName || "import-url-image-ocr-api-key";
-		let apiKey: string | null = null;
-		try {
-			apiKey = (await this.getImageOcrApiKey(secret))?.trim() ?? null;
-		} catch (error) {
-			return [{
-				text: "",
-				warning: `图片文字识别已跳过：读取视觉模型密钥失败：${getErrorMessage(error)}`,
-			}];
-		}
-		if (!apiKey) {
-			return [{
-				text: "",
-				warning: "图片文字识别已跳过：未保存视觉模型密钥。",
-			}];
-		}
-
-		const client = this.deps?.createImageOcrClient
-			? this.deps.createImageOcrClient(input.fetcher, input.settings, apiKey)
-			: new ImageOcrClient(input.fetcher, input.settings, apiKey);
+		const client = clientResult.client;
 		if (!client) {
 			return [{
 				text: "",
-				warning: "图片文字识别已跳过：视觉模型客户端不可用。",
+				warning: "图片文字识别已跳过：OCR 客户端不可用。",
 			}];
 		}
 
@@ -1221,6 +1213,57 @@ export class JobRunner {
 		}
 
 		return blocks;
+	}
+
+	private async createImageOcrClient(
+		fetcher: Fetcher,
+		settings: ImportUrlPluginSettings,
+	): Promise<{client: ImageOcrClient | BaiduImageOcrClient | null} | {warning: string}> {
+		if (settings.imageOcrProvider === "baidu") {
+			if (!this.getImageOcrBaiduApiKey || !this.getImageOcrBaiduSecretKey) {
+				return {warning: "百度图片文字识别已跳过：未提供百度密钥读取器。"};
+			}
+
+			let apiKey: string | null = null;
+			let secretKey: string | null = null;
+			try {
+				apiKey = (await this.getImageOcrBaiduApiKey(settings.imageOcrBaiduApiKeySecretName))?.trim() ?? null;
+				secretKey = (await this.getImageOcrBaiduSecretKey(settings.imageOcrBaiduSecretKeySecretName))?.trim() ?? null;
+			} catch (error) {
+				return {warning: `百度图片文字识别已跳过：读取百度密钥失败：${getErrorMessage(error)}`};
+			}
+
+			if (!apiKey || !secretKey) {
+				return {warning: "百度图片文字识别已跳过：未保存百度 API Key 或 Secret Key。"};
+			}
+
+			return {
+				client: this.deps?.createBaiduImageOcrClient
+					? this.deps.createBaiduImageOcrClient(fetcher, settings, apiKey, secretKey)
+					: new BaiduImageOcrClient(fetcher, settings, apiKey, secretKey),
+			};
+		}
+
+		if (!this.getImageOcrApiKey) {
+			return {warning: "图片文字识别已跳过：未提供视觉模型密钥读取器。"};
+		}
+
+		const secret = settings.imageOcrSecretName || "import-url-image-ocr-api-key";
+		let apiKey: string | null = null;
+		try {
+			apiKey = (await this.getImageOcrApiKey(secret))?.trim() ?? null;
+		} catch (error) {
+			return {warning: `图片文字识别已跳过：读取视觉模型密钥失败：${getErrorMessage(error)}`};
+		}
+		if (!apiKey) {
+			return {warning: "图片文字识别已跳过：未保存视觉模型密钥。"};
+		}
+
+		return {
+			client: this.deps?.createImageOcrClient
+				? this.deps.createImageOcrClient(fetcher, settings, apiKey)
+				: new ImageOcrClient(fetcher, settings, apiKey),
+		};
 	}
 
 	private async resolveUniqueBinaryPath(folder: string, fileName: string, suffix: string): Promise<string> {

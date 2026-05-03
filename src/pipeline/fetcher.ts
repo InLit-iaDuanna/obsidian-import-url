@@ -124,6 +124,26 @@ export class Fetcher {
 		);
 	}
 
+	postForm(
+		url: string,
+		body: Record<string, string>,
+		headers: Record<string, string> = {},
+	): Promise<RequestUrlResponse> {
+		return withTimeout(
+			requestUrl({
+				url,
+				method: "POST",
+				contentType: "application/x-www-form-urlencoded",
+				body: new URLSearchParams(body).toString(),
+				headers,
+				throw: false,
+			}),
+			this.aiTimeoutMs,
+			"ai_call",
+			`POST 请求在 ${this.aiTimeoutMs}ms 后超时。`,
+		);
+	}
+
 	async postJsonStream(
 		url: string,
 		body: unknown,

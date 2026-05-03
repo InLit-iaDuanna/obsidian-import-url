@@ -108,7 +108,7 @@ The plugin supports:
 - per-model API base URL overrides
 - output, processing, failed, history, and knowledge-base folders
 - image download folder; image attachments are saved as original evidence and do not participate in concept graph edges
-- optional image text recognition; missing vision-model keys only skip recognition and do not fail the import
+- optional image text recognition through either an OpenAI-compatible vision endpoint or Baidu text recognition; missing text-recognition keys only skip recognition and do not fail the import
 - optional fallback fetchers with clear disclosure
 
 ## Images and text recognition
@@ -117,7 +117,8 @@ The plugin supports:
 - Icons, avatars, emoji, ads, tiny decorations, and invalid URLs are skipped quietly; actual body-image download errors are listed in the original note.
 - Image text recognition is off by default. When enabled, it only processes downloaded body images, with a default maximum of 8 images per import.
 - The main organizing model still receives text Markdown, image alt/caption metadata, and optional text-recognition output; raw images are not sent through the DeepSeek text organizing path.
-- Image text recognition uses a separate vision model endpoint and secret name so it does not silently reuse the main model key.
+- Image text recognition uses separate settings and secret names so it does not silently reuse the main model key.
+- Baidu text recognition is supported through a Baidu interface key and private key. The plugin stores those values in Obsidian secret storage, exchanges them for an access token, and calls Baidu's text-recognition endpoint only when recognition is enabled.
 
 ## Platform support
 

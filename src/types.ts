@@ -3,6 +3,7 @@ export type JobStatus = "processing" | "complete" | "failed";
 export type FailureStage = "preflight" | "fetch" | "extract" | "ai_call" | "ai_parse" | "save";
 export type JobProgressStage = "queued" | "preflight" | "fetching" | "extracting" | "ai_call" | "saving" | "complete" | "failed";
 export type ImageDownloadStatus = "pending" | "downloaded" | "failed" | "skipped";
+export type ImageOcrProvider = "openai-compatible" | "baidu";
 
 export interface ModelApiBaseUrlRule {
 	model: string;
@@ -29,9 +30,12 @@ export interface ImportUrlPluginSettings {
 	imageDownloadEnabled: boolean;
 	imageAttachmentFolder: string;
 	imageOcrEnabled: boolean;
+	imageOcrProvider: ImageOcrProvider;
 	imageOcrApiBaseUrl: string;
 	imageOcrModel: string;
 	imageOcrSecretName: string;
+	imageOcrBaiduApiKeySecretName: string;
+	imageOcrBaiduSecretKeySecretName: string;
 	imageOcrMaxImages: number;
 	defaultLanguage: string;
 	fetchTimeoutMs: number;

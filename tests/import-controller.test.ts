@@ -53,6 +53,23 @@ describe("import controller", () => {
 		expect(plugin.settings.model).toBe("deepseek-v4-flash");
 	});
 
+	it("fills missing OCR settings when loading older settings", () => {
+		const {plugin} = createPluginStub();
+		const controller = new ImportController(plugin as never);
+
+		const migrated = controller.loadStoredSettings({
+			...DEFAULT_SETTINGS,
+			imageOcrProvider: undefined,
+			imageOcrBaiduApiKeySecretName: "",
+			imageOcrBaiduSecretKeySecretName: "",
+		} as never);
+
+		expect(migrated).toBe(true);
+		expect(plugin.settings.imageOcrProvider).toBe("openai-compatible");
+		expect(plugin.settings.imageOcrBaiduApiKeySecretName).toBe("import-url-baidu-ocr-api-key");
+		expect(plugin.settings.imageOcrBaiduSecretKeySecretName).toBe("import-url-baidu-ocr-secret-key");
+	});
+
 	it("persists selected models to settings and config.toml", async () => {
 		const {plugin, vault} = createPluginStub();
 		const controller = new ImportController(plugin as never);
