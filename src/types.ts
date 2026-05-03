@@ -16,9 +16,15 @@ export interface ImportUrlPluginSettings {
 	modelApiBaseUrls: ModelApiBaseUrlRule[];
 	configTomlPath: string;
 	outputFolder: string;
+	originalFolder: string;
 	processingFolder: string;
 	failedFolder: string;
 	historyFolder: string;
+	wikiFolder: string;
+	wikiSourcesFolder: string;
+	wikiCandidatesFolder: string;
+	wikiConceptsFolder: string;
+	wikiIndexPath: string;
 	defaultLanguage: string;
 	fetchTimeoutMs: number;
 	aiTimeoutMs: number;
@@ -50,6 +56,7 @@ export interface ImportHistoryEntry {
 	progressUpdatedAt: string;
 	title?: string;
 	notePath?: string;
+	originalNotePath?: string;
 	historyNotePath?: string;
 	sourceType?: SourceType;
 	errorMessage?: string;
@@ -62,8 +69,18 @@ export interface StructuredDigest {
 	keyFacts: string[];
 	actionItems: string[];
 	fullOrganizedMarkdown: string;
+	concepts: WikiConceptDraft[];
 	suggestedTags: string[];
 	warnings: string[];
+}
+
+export interface WikiConceptDraft {
+	title: string;
+	aliases: string[];
+	summary: string;
+	evidence: string[];
+	relatedConcepts: string[];
+	confidence: number;
 }
 
 export interface FailureInfo {
@@ -143,6 +160,7 @@ export interface JobRunResult {
 	model: string;
 	title: string;
 	notePath: string;
+	originalNotePath?: string;
 	sourceType: SourceType;
 	failure?: FailureInfo;
 }
@@ -170,5 +188,5 @@ export class PipelineError extends Error {
 	}
 }
 
-export const OPENAI_MAX_OUTPUT_TOKENS = 6000;
+export const MODEL_MAX_OUTPUT_TOKENS = 10000;
 export const PDF_PREFLIGHT_MAX_BYTES = 50 * 1024 * 1024;

@@ -1,7 +1,7 @@
 import {App, Notice, TFile} from "obsidian";
 import {AiClient} from "./ai-client";
 import {BrowserRenderFallbackUnavailableError} from "./browser-render-fallback";
-import {extractSiteJsonContent, extractWebpageContent, getSiteJsonFallbackUrl, truncateMarkdown} from "./extractor";
+import {extractPdfTextContent, extractSiteJsonContent, extractWebpageContent, getSiteJsonFallbackUrl, truncateMarkdown} from "./extractor";
 import {Fetcher, TimeoutError} from "./fetcher";
 import {validateUrl, parseHttpUrl} from "./url-validator";
 import {
@@ -16,18 +16,22 @@ import {
 	UserInputError,
 	WebpageExtractionResult,
 } from "../types";
+import {writeWikiArtifacts} from "../wiki-artifacts";
 import {
 	buildFailedFileName,
+	buildOriginalFileName,
 	buildProcessingFileName,
 	buildSuccessFileName,
 	ensureDisplayTitle,
 	formatClippedAt,
 	randomHexSuffix,
 	renderFailureNote,
+	renderOriginalNote,
 	renderProcessingNote,
 	renderSuccessNote,
 	sanitizeNoteTitle,
 } from "../render/notes";
+import {normalizeConceptDrafts} from "../wiki-links";
 
 interface JobRunnerOptions {
 	app: App;
@@ -40,6 +44,14 @@ interface JobRunnerOptions {
 		now?: () => Date;
 		randomSuffix?: () => string;
 	};
+}
+
+interface WebpageFetchResult {
+	content: string;
+	extracted?: WebpageExtractionResult;
+	usedReaderFallback: boolean;
+	usedSiteJsonFallback: boolean;
+	usedBrowserRenderFallback: boolean;
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -109,7 +121,7 @@ function toFailureInfo(error: unknown): FailureInfo {
 		return {
 			stage: error.stage,
 			errorMessage: error.message,
-			suggestion: error.stage === "fetch" ? "网页请求超时，请稍后重试。" : "OpenAI 请求超时，请稍后重试。",
+			suggestion: error.stage === "fetch" ? "网页请求超时，请稍后重试。" : "模型接口请求超时，请稍后重试。",
 		};
 	}
 
@@ -140,7 +152,7 @@ export class JobRunner {
 
 	async run(options: string | JobRunOptions): Promise<JobRunResult> {
 		if (this.activeRun) {
-			throw new UserInputError("Another import is already running. Please wait.");
+			throw new UserInputError("已有导入任务正在运行，请稍后。");
 		}
 
 		const task = this.runInternal(typeof options === "string" ? {rawUrl: options} : options);
@@ -156,6 +168,9 @@ export class JobRunner {
 			model: options.model?.trim() || this.getSettings().model,
 			apiBaseUrl: options.apiBaseUrl?.trim() || this.getSettings().apiBaseUrl,
 		};
+		if (!settings.model.trim()) {
+			throw new UserInputError("导入前请先选择模型 ID。");
+		}
 		const now = this.deps?.now?.() ?? new Date();
 		const suffix = this.deps?.randomSuffix?.() ?? randomHexSuffix();
 		const sourceUrl = parseHttpUrl(options.rawUrl);
@@ -167,7 +182,7 @@ export class JobRunner {
 			model: settings.model,
 			stage: "queued",
 			progressPercent: 5,
-			message: "Import queued. Waiting for preflight checks.",
+			message: "导入已排队，正在等待预检。",
 			sourceType: sourceTypeGuess,
 		});
 
@@ -176,7 +191,7 @@ export class JobRunner {
 			sourceUrl: sourceUrl.toString(),
 			sourceType: sourceTypeGuess,
 			sourceTitle: host,
-			title: `Processing - ${host}`,
+			title: `处理中 - ${host}`,
 			date: now,
 			suffix,
 		});
@@ -191,7 +206,7 @@ export class JobRunner {
 				model: settings.model,
 				stage: "preflight",
 				progressPercent: 15,
-				message: "Checking URL and source type.",
+				message: "正在检查 URL 和来源类型。",
 				sourceType,
 				title: sourceTitle,
 			});
@@ -204,19 +219,20 @@ export class JobRunner {
 
 			let digest: StructuredDigest;
 			let upstreamWarnings: string[] = [];
+			let originalMarkdown = "";
 
 			if (sourceType === "webpage") {
-				new Notice("Fetching webpage content...", 3000);
+				new Notice("正在抓取网页内容...", 3000);
 				await this.emitProgress(options, {
 					url: validated.url,
 					model: settings.model,
 					stage: "fetching",
 					progressPercent: 32,
-					message: "Fetching webpage content.",
+					message: "正在抓取网页内容。",
 					sourceType,
 					title: sourceTitle,
 				});
-				const webpage = await this.fetchWebpage(validated.url, fetcher, {
+				let webpage = await this.fetchWebpage(validated.url, fetcher, {
 					siteJsonFallbackEnabled: settings.siteJsonFallbackEnabled,
 					readerFallbackEnabled: settings.readerFallbackEnabled,
 					browserRenderFallbackEnabled: settings.browserRenderFallbackEnabled,
@@ -226,34 +242,40 @@ export class JobRunner {
 					model: settings.model,
 					stage: "extracting",
 					progressPercent: 48,
-					message: "Extracting article content and converting to Markdown.",
+					message: "正在提取正文并转换为 Markdown。",
 					sourceType,
 					title: sourceTitle,
 				});
-				const extracted = webpage.extracted ?? extractWebpageContent(webpage.content);
+				const extraction = await this.extractWebpageContentWithFallback(validated.url, fetcher, {
+					readerFallbackEnabled: settings.readerFallbackEnabled,
+					browserRenderFallbackEnabled: settings.browserRenderFallbackEnabled,
+				}, webpage);
+				webpage = extraction.webpage;
+				const extracted = extraction.extracted;
 				sourceTitle = extracted.title || host;
 				const truncated = truncateMarkdown(extracted.markdown, settings.maxContentTokens);
+				originalMarkdown = truncated.markdown;
 				upstreamWarnings = uniqueStrings([
 					...extracted.warnings,
 					...truncated.warnings,
-						...(webpage.usedReaderFallback
-							? ["Direct webpage fetch failed. Content was fetched through r.jina.ai reader fallback, which receives the source URL."]
-							: []),
-						...(webpage.usedSiteJsonFallback
-							? ["HTML fetch failed. Content was extracted from a site-specific JSON endpoint."]
-							: []),
-						...(webpage.usedBrowserRenderFallback
-							? ["Direct and standard fallbacks failed. Content was extracted from desktop browser-rendered HTML."]
-							: []),
-					]);
+					...(webpage.usedReaderFallback
+						? ["网页正文已通过 r.jina.ai 阅读模式获取；该服务会收到来源 URL。"]
+						: []),
+					...(webpage.usedSiteJsonFallback
+						? ["内容已从站点 JSON 接口提取。"]
+						: []),
+					...(webpage.usedBrowserRenderFallback
+						? ["网页正文已从桌面浏览器渲染后的 HTML 提取。"]
+						: []),
+				]);
 
-				new Notice("Running AI summary...", 3000);
+				new Notice("正在调用模型整理内容...", 3000);
 				await this.emitProgress(options, {
 					url: validated.url,
 					model: settings.model,
 					stage: "ai_call",
 					progressPercent: 72,
-					message: "Calling model to organize content.",
+					message: "正在调用模型整理内容。",
 					sourceType,
 					title: sourceTitle,
 				});
@@ -268,32 +290,75 @@ export class JobRunner {
 					warnings: upstreamWarnings,
 				});
 			} else {
-				new Notice("Running AI summary...", 3000);
+				new Notice("正在抓取 PDF 内容...", 3000);
+				await this.emitProgress(options, {
+					url: validated.url,
+					model: settings.model,
+					stage: "fetching",
+					progressPercent: 32,
+					message: "正在抓取 PDF 内容。",
+					sourceType,
+					title: sourceTitle,
+				});
+				const pdfResponse = await fetcher.getBinaryUrl(validated.url);
+				if (pdfResponse.status >= 400) {
+					throw new PipelineError({
+						stage: "fetch",
+						httpStatus: pdfResponse.status,
+						errorMessage: `PDF 抓取失败（${pdfResponse.status}）。`,
+						suggestion: "请确认 PDF 链接公开可访问，且不是需要登录或临时授权的地址。",
+					});
+				}
+				await this.emitProgress(options, {
+					url: validated.url,
+					model: settings.model,
+					stage: "extracting",
+					progressPercent: 45,
+					message: "正在本地提取 PDF 文本。",
+					sourceType,
+					title: sourceTitle,
+				});
+				const extractedPdf = extractPdfTextContent(pdfResponse.arrayBuffer);
+				const truncated = truncateMarkdown(extractedPdf.markdown, settings.maxContentTokens);
+				originalMarkdown = truncated.markdown;
+				upstreamWarnings = uniqueStrings([
+					...extractedPdf.warnings,
+					...truncated.warnings,
+				]);
+				new Notice("正在调用模型整理内容...", 3000);
 				await this.emitProgress(options, {
 					url: validated.url,
 					model: settings.model,
 					stage: "ai_call",
 					progressPercent: 58,
-					message: "Calling model to read and organize the PDF.",
+					message: "正在调用模型整理提取出的 PDF 文本。",
 					sourceType,
 					title: sourceTitle,
 				});
 				digest = await aiClient.digestPdf({
 					sourceUrl: validated.url,
 					sourceTitle,
+					markdown: truncated.markdown,
+					warnings: upstreamWarnings,
 				});
 			}
 
 			const mergedDigest: StructuredDigest = {
 				...digest,
 				warnings: uniqueStrings([...upstreamWarnings, ...digest.warnings]),
+				concepts: normalizeConceptDrafts(digest.concepts),
 				suggestedTags: uniqueStrings(digest.suggestedTags),
 			};
 
 			const finalTitle = ensureDisplayTitle(mergedDigest.title, sourceTitle, host);
-			const successPath = await this.resolveUniquePath(
+			const structuredPath = await this.resolveUniquePath(
 				settings.outputFolder,
 				buildSuccessFileName(finalTitle, now),
+				suffix,
+			);
+			const originalPath = await this.resolveUniquePath(
+				settings.originalFolder,
+				buildOriginalFileName(finalTitle, now),
 				suffix,
 			);
 			await this.emitProgress(options, {
@@ -301,14 +366,37 @@ export class JobRunner {
 				model: settings.model,
 				stage: "saving",
 				progressPercent: 90,
-				message: "Writing final note.",
+				message: "正在写入原文和 AI 整理笔记。",
 				sourceType,
 				title: finalTitle,
 			});
 
+			const originalFile = await this.app.vault.create(
+				originalPath,
+				renderOriginalNote({
+					frontmatter: {
+						sourceUrl: validated.url,
+						sourceType,
+						sourceTitle,
+						status: "complete",
+						title: `原文 - ${finalTitle}`,
+						clippedAt: formatClippedAt(now),
+						model: settings.model,
+						language: settings.defaultLanguage,
+						tags: ["import-url/original", "import-url/generated"],
+						graphGroup: "import-url-original",
+					},
+					sourceType,
+					sourceUrl: validated.url,
+					markdown: originalMarkdown,
+					warnings: upstreamWarnings,
+					structuredNotePath: structuredPath,
+				}),
+			);
+
 			workingFile = await this.moveAndWrite(
 				workingFile,
-				successPath,
+				structuredPath,
 				renderSuccessNote({
 					frontmatter: {
 						sourceUrl: validated.url,
@@ -319,26 +407,45 @@ export class JobRunner {
 						clippedAt: formatClippedAt(now),
 						model: settings.model,
 						language: settings.defaultLanguage,
-						tags: mergedDigest.suggestedTags,
+						tags: uniqueStrings(["import-url/article", "import-url/generated", ...mergedDigest.suggestedTags]),
+						graphGroup: "import-url-article",
 					},
 					sourceType,
 					sourceUrl: validated.url,
+					wikiConceptsFolder: settings.wikiConceptsFolder,
 					digest: mergedDigest,
+					originalNotePath: originalFile.path,
 				}),
 				false,
 			);
+
+			try {
+				await writeWikiArtifacts(this.app, settings, {
+					sourceUrl: validated.url,
+					sourceType,
+					sourceTitle,
+					notePath: workingFile.path,
+					digest: mergedDigest,
+					model: settings.model,
+					date: now,
+					suffix,
+				});
+			} catch (error) {
+				console.error("[import-url] failed to write wiki artifacts", error);
+				new Notice("笔记已生成，但知识库候选文件写入失败。", 7000);
+			}
 
 			if (settings.openNoteAfterCreate) {
 				await this.app.workspace.getLeaf(true).openFile(workingFile);
 			}
 
-			new Notice(`Note created: ${finalTitle}`, 5000);
+			new Notice(`笔记已生成：${finalTitle}`, 5000);
 			await this.emitProgress(options, {
 				url: validated.url,
 				model: settings.model,
 				stage: "complete",
 				progressPercent: 100,
-				message: "Import complete.",
+				message: "导入完成。",
 				sourceType,
 				title: finalTitle,
 			});
@@ -348,6 +455,7 @@ export class JobRunner {
 				model: settings.model,
 				title: finalTitle,
 				notePath: workingFile.path,
+				originalNotePath: originalFile.path,
 				sourceType,
 			};
 		} catch (error) {
@@ -367,7 +475,7 @@ export class JobRunner {
 			});
 			const failedPath = await this.resolveUniquePath(
 				settings.failedFolder,
-				buildFailedFileName(sourceTitle || host, suffix, now),
+					buildFailedFileName(sourceTitle || host, now),
 				suffix,
 			);
 
@@ -384,7 +492,8 @@ export class JobRunner {
 						clippedAt: formatClippedAt(now),
 						model: settings.model,
 						language: settings.defaultLanguage,
-						tags: [],
+						tags: ["import-url/failed", "import-url/generated"],
+						graphGroup: "import-url-status",
 					},
 					sourceUrl: sourceUrl.toString(),
 					failure,
@@ -422,16 +531,16 @@ export class JobRunner {
 		} catch (error) {
 			throw new PipelineError({
 				stage: "preflight",
-				errorMessage: error instanceof Error ? error.message : "Failed to read API key from Secret storage.",
-				suggestion: "无法读取系统安全存储中的 API key。请重新保存密钥，或检查当前设备是否支持 Secret storage。",
+				errorMessage: error instanceof Error ? error.message : "读取 API 密钥失败。",
+				suggestion: "无法读取系统安全存储中的 API 密钥。请重新保存密钥，或检查当前设备是否支持安全存储。",
 			});
 		}
 
 		if (!apiKey) {
 			throw new PipelineError({
 				stage: "preflight",
-				errorMessage: "OpenAI API key is missing.",
-				suggestion: "请在插件设置中保存 OpenAI API key。",
+				errorMessage: "模型 API 密钥缺失。",
+				suggestion: "请在插件设置中保存模型 API 密钥。",
 			});
 		}
 
@@ -446,20 +555,14 @@ export class JobRunner {
 			readerFallbackEnabled: boolean;
 			browserRenderFallbackEnabled: boolean;
 		},
-	): Promise<{
-		content: string;
-		extracted?: WebpageExtractionResult;
-		usedReaderFallback: boolean;
-		usedSiteJsonFallback: boolean;
-		usedBrowserRenderFallback: boolean;
-	}> {
+	): Promise<WebpageFetchResult> {
 		try {
 			const response = await fetcher.getTextUrl(url);
 			if (response.status >= 400) {
 				throw new PipelineError({
 					stage: "fetch",
 					httpStatus: response.status,
-					errorMessage: `Failed to fetch webpage (${response.status}).`,
+					errorMessage: `网页抓取失败（${response.status}）。`,
 					suggestion: "请确认链接公开可访问，且不是需要登录或反爬验证的页面。",
 				});
 			}
@@ -520,7 +623,7 @@ export class JobRunner {
 						fallbackErrors.push(new PipelineError({
 							stage: "fetch",
 							httpStatus: siteJsonResponse.status,
-							errorMessage: `Site JSON fallback failed (${siteJsonResponse.status}).`,
+							errorMessage: `站点 JSON 兜底失败（${siteJsonResponse.status}）。`,
 							suggestion: "站点 JSON 接口已响应，但没能提供可用正文。",
 						}));
 					} catch (siteJsonError) {
@@ -545,7 +648,7 @@ export class JobRunner {
 							fallbackErrors.push(new PipelineError({
 								stage: "fetch",
 								httpStatus: readerJsonResponse.status,
-								errorMessage: `Reader JSON fallback failed (${readerJsonResponse.status}).`,
+								errorMessage: `阅读模式 JSON 兜底失败（${readerJsonResponse.status}）。`,
 								suggestion: "站点 JSON 和阅读代理都已尝试，但仍未拿到可用正文。",
 							}));
 						} catch (readerJsonError) {
@@ -562,7 +665,7 @@ export class JobRunner {
 						throw new PipelineError({
 							stage: "fetch",
 							httpStatus: readerResponse.status,
-							errorMessage: `Reader fallback failed (${readerResponse.status}).`,
+							errorMessage: `阅读模式兜底失败（${readerResponse.status}）。`,
 							suggestion: "原网页直连抓取失败，阅读代理回退也失败了。请稍后重试，或关闭代理回退后换网络再试。",
 						});
 					}
@@ -579,40 +682,144 @@ export class JobRunner {
 				}
 			}
 
-				if (options.browserRenderFallbackEnabled) {
-					try {
-						const browserResponse = await fetcher.getBrowserRenderedHtml(url);
-						if (browserResponse.status >= 400) {
-							throw new PipelineError({
-								stage: "fetch",
-								httpStatus: browserResponse.status,
-								errorMessage: `Browser render fallback failed (${browserResponse.status}).`,
-								suggestion: "Browser render fallback failed. Disable this fallback or use another fetch path.",
-							});
-						}
+			if (options.browserRenderFallbackEnabled) {
+				try {
+					const browserResponse = await fetcher.getBrowserRenderedHtml(url);
+					if (browserResponse.status >= 400) {
+						throw new PipelineError({
+							stage: "fetch",
+							httpStatus: browserResponse.status,
+							errorMessage: `浏览器渲染兜底失败（${browserResponse.status}）。`,
+							suggestion: "浏览器渲染兜底失败。请关闭该兜底，或换用其他抓取路径。",
+						});
+					}
 
 					return {
 						content: browserResponse.text,
 						extracted: undefined,
 						usedReaderFallback: false,
 						usedSiteJsonFallback: false,
-							usedBrowserRenderFallback: true,
-						};
-					} catch (browserError) {
-						if (browserError instanceof BrowserRenderFallbackUnavailableError) {
-							fallbackErrors.push(new PipelineError({
-								stage: "fetch",
-								errorMessage: browserError.message,
-								suggestion: "Browser render fallback is experimental and desktop-only (macOS). Disable this fallback on unsupported devices.",
-							}));
-							throw fallbackErrors[fallbackErrors.length - 1];
-						}
-						fallbackErrors.push(browserError);
+						usedBrowserRenderFallback: true,
+					};
+				} catch (browserError) {
+					if (browserError instanceof BrowserRenderFallbackUnavailableError) {
+						fallbackErrors.push(new PipelineError({
+							stage: "fetch",
+							errorMessage: browserError.message,
+							suggestion: "浏览器渲染兜底是实验功能，仅支持桌面端 macOS。请在不支持的设备上关闭该兜底。",
+						}));
+						throw fallbackErrors[fallbackErrors.length - 1];
 					}
+					fallbackErrors.push(browserError);
+				}
 				}
 
-			throw fallbackErrors[fallbackErrors.length - 1] ?? error;
+				throw fallbackErrors[fallbackErrors.length - 1] ?? error;
 		}
+	}
+
+	private async extractWebpageContentWithFallback(
+		url: string,
+		fetcher: Fetcher,
+		options: {
+			readerFallbackEnabled: boolean;
+			browserRenderFallbackEnabled: boolean;
+		},
+		webpage: WebpageFetchResult,
+	): Promise<{extracted: WebpageExtractionResult; webpage: WebpageFetchResult}> {
+		if (webpage.extracted) {
+			return {
+				extracted: webpage.extracted,
+				webpage,
+			};
+		}
+
+		const fallbackErrors: unknown[] = [];
+		try {
+			return {
+				extracted: extractWebpageContent(webpage.content),
+				webpage,
+			};
+		} catch (error) {
+			fallbackErrors.push(error);
+		}
+
+		if (options.readerFallbackEnabled && !webpage.usedReaderFallback) {
+			try {
+				new Notice("正文提取失败，正在尝试阅读模式兜底...", 3000);
+				const readerResponse = await fetcher.getReaderTextUrl(url);
+				if (readerResponse.status >= 400) {
+					throw new PipelineError({
+						stage: "fetch",
+						httpStatus: readerResponse.status,
+						errorMessage: `阅读模式兜底失败（${readerResponse.status}）。`,
+						suggestion: "网页能打开但未提取出正文，阅读模式兜底也失败了。请换一个公开正文页，或开启浏览器渲染兜底。",
+					});
+				}
+				const extracted = extractWebpageContent(readerResponse.text);
+				return {
+					extracted,
+					webpage: {
+						content: readerResponse.text,
+						extracted,
+						usedReaderFallback: true,
+						usedSiteJsonFallback: webpage.usedSiteJsonFallback,
+						usedBrowserRenderFallback: false,
+					},
+				};
+			} catch (readerError) {
+				fallbackErrors.push(readerError);
+			}
+		}
+
+		if (options.browserRenderFallbackEnabled && !webpage.usedBrowserRenderFallback) {
+			try {
+				new Notice("正文提取失败，正在尝试浏览器渲染兜底...", 3000);
+				const browserResponse = await fetcher.getBrowserRenderedHtml(url);
+				if (browserResponse.status >= 400) {
+					throw new PipelineError({
+						stage: "fetch",
+						httpStatus: browserResponse.status,
+						errorMessage: `浏览器渲染兜底失败（${browserResponse.status}）。`,
+						suggestion: "网页能打开但未提取出正文，浏览器渲染兜底也失败了。请换一个公开正文页。",
+					});
+				}
+				const extracted = extractWebpageContent(browserResponse.text);
+				return {
+					extracted,
+					webpage: {
+						content: browserResponse.text,
+						extracted,
+						usedReaderFallback: webpage.usedReaderFallback,
+						usedSiteJsonFallback: webpage.usedSiteJsonFallback,
+						usedBrowserRenderFallback: true,
+					},
+				};
+			} catch (browserError) {
+				if (browserError instanceof BrowserRenderFallbackUnavailableError) {
+					fallbackErrors.push(new PipelineError({
+						stage: "fetch",
+						errorMessage: browserError.message,
+						suggestion: "浏览器渲染兜底是实验功能，仅支持桌面端 macOS。请在不支持的设备上关闭该兜底。",
+					}));
+				} else {
+					fallbackErrors.push(browserError);
+				}
+			}
+		}
+
+		const finalError = fallbackErrors[fallbackErrors.length - 1] ?? fallbackErrors[0] ?? new PipelineError({
+			stage: "extract",
+			errorMessage: "无法从网页提取可读 Markdown 内容。",
+			suggestion: "请确认链接是公开网页正文页，而不是需要登录或只返回脚本壳的页面。",
+		});
+		if (finalError instanceof Error) {
+			throw finalError;
+		}
+		if (typeof finalError === "string") {
+			throw new Error(finalError);
+		}
+		throw new Error("网页正文提取失败，所有兜底路径也失败。");
 	}
 
 	private async createProcessingNote(input: {
@@ -625,7 +832,7 @@ export class JobRunner {
 		suffix: string;
 	}): Promise<TFile> {
 		await this.ensureFolder(input.settings.processingFolder);
-		const fileName = buildProcessingFileName(input.sourceTitle, input.suffix, input.date);
+		const fileName = buildProcessingFileName(input.sourceTitle, input.date);
 		const targetPath = await this.resolveUniquePath(input.settings.processingFolder, fileName, input.suffix);
 
 		return this.app.vault.create(
@@ -639,7 +846,8 @@ export class JobRunner {
 				clippedAt: formatClippedAt(input.date),
 				model: input.settings.model,
 				language: input.settings.defaultLanguage,
-				tags: [],
+				tags: ["import-url/processing", "import-url/generated"],
+				graphGroup: "import-url-status",
 			}),
 		);
 	}

@@ -9,6 +9,7 @@ describe("plugin commands", () => {
 		const commandRegistry = plugin as unknown as {
 			commands: Array<{id: string; name: string; callback: () => void}>;
 			settingTabs: unknown[];
+			views: Array<{type: string}>;
 		};
 
 		vi.spyOn(plugin, "loadSettings").mockResolvedValue(undefined);
@@ -16,8 +17,25 @@ describe("plugin commands", () => {
 
 		await plugin.onload();
 
-		expect(commandRegistry.commands.map((command) => command.id)).toEqual(["import", "import-from-clipboard", "open-config"]);
-		expect(commandRegistry.commands.map((command) => command.name)).toEqual(["Import from URL", "Import from clipboard", "Open config file"]);
+		expect(commandRegistry.commands.map((command) => command.id)).toEqual([
+			"import",
+			"import-from-clipboard",
+			"open-config",
+			"open-wiki-index",
+			"open-wiki-manager",
+			"approve-current-wiki-candidate",
+			"reject-current-wiki-candidate",
+		]);
+		expect(commandRegistry.commands.map((command) => command.name)).toEqual([
+			"从 URL 导入",
+			"从剪贴板导入",
+			"打开配置文件",
+			"打开知识库索引",
+			"打开知识库管理",
+			"批准当前知识库候选页",
+			"拒绝当前知识库候选页",
+		]);
 		expect(commandRegistry.settingTabs).toHaveLength(1);
+		expect(commandRegistry.views.map((view) => view.type)).toEqual(["import-url-wiki-manager"]);
 	});
 });

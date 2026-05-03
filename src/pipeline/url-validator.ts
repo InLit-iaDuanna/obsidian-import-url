@@ -22,18 +22,18 @@ function parseContentLength(value?: string): number | undefined {
 export function parseHttpUrl(rawUrl: string): URL {
 	const trimmed = rawUrl.trim();
 	if (!trimmed) {
-		throw new UserInputError("Enter a valid HTTP(S) URL.");
+		throw new UserInputError("请输入有效的 HTTP(S) URL。");
 	}
 
 	let url: URL;
 	try {
 		url = new URL(trimmed);
 	} catch {
-		throw new UserInputError("Enter a valid HTTP(S) URL.");
+		throw new UserInputError("请输入有效的 HTTP(S) URL。");
 	}
 
 	if (url.protocol !== "http:" && url.protocol !== "https:") {
-		throw new UserInputError("Only HTTP and HTTPS URLs are supported.");
+		throw new UserInputError("仅支持 HTTP 和 HTTPS URL。");
 	}
 
 	return url;
@@ -66,7 +66,7 @@ export async function validateUrl(url: URL, fetcher: Fetcher): Promise<Validated
 	if (sourceType === "pdf" && headResult?.contentLength && headResult.contentLength > PDF_PREFLIGHT_MAX_BYTES) {
 		throw new PipelineError({
 			stage: "preflight",
-			errorMessage: `PDF exceeds preflight size limit (${PDF_PREFLIGHT_MAX_BYTES} bytes).`,
+			errorMessage: `PDF 超过预检大小上限（${PDF_PREFLIGHT_MAX_BYTES} bytes）。`,
 			httpStatus: headResult.status,
 			suggestion: "该 PDF 超过 50 MB 预检上限，请改用更小的公开直达 PDF 链接。",
 		});

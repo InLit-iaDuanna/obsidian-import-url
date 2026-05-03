@@ -147,7 +147,7 @@ end run`;
 		});
 		child.on("close", (code: number | null) => {
 			if (code !== 0) {
-				reject(new Error(stderr.trim() || `Browser render fallback failed with exit code ${code ?? -1}.`));
+				reject(new Error(stderr.trim() || `浏览器渲染兜底失败，退出码：${code ?? -1}。`));
 				return;
 			}
 

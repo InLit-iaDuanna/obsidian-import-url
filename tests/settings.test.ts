@@ -1,6 +1,6 @@
 import {App} from "obsidian";
 import {describe, expect, it, vi} from "vitest";
-import {readSecretValue, removeSecretValue, writeSecretValue} from "../src/settings";
+import {DEFAULT_API_SECRET_NAME, LEGACY_OPENAI_SECRET_NAME, readApiKeyValue, readSecretValue, removeSecretValue, writeSecretValue} from "../src/settings";
 
 describe("secret storage compatibility", () => {
 		it("reads from either get or getSecret", async () => {
@@ -35,5 +35,37 @@ describe("secret storage compatibility", () => {
 
 		expect(setSecret).toHaveBeenCalledWith("key", "value");
 		expect(removeSecret).toHaveBeenCalledWith("key");
+	});
+
+	it("falls back to the legacy API key name when the DeepSeek key is empty", async () => {
+		const get = vi.fn().mockImplementation(async (key: string) => {
+			if (key === DEFAULT_API_SECRET_NAME) {
+				return null;
+			}
+			if (key === LEGACY_OPENAI_SECRET_NAME) {
+				return "sk-legacy";
+			}
+			return null;
+		});
+
+		await expect(readApiKeyValue({
+			secretStorage: {get},
+		} as unknown as App, DEFAULT_API_SECRET_NAME)).resolves.toBe("sk-legacy");
+	});
+
+	it("falls back to the default DeepSeek key when a custom key name is empty", async () => {
+		const get = vi.fn().mockImplementation(async (key: string) => {
+			if (key === "custom-empty-key") {
+				return null;
+			}
+			if (key === DEFAULT_API_SECRET_NAME) {
+				return "sk-default";
+			}
+			return null;
+		});
+
+		await expect(readApiKeyValue({
+			secretStorage: {get},
+		} as unknown as App, "custom-empty-key")).resolves.toBe("sk-default");
 	});
 });

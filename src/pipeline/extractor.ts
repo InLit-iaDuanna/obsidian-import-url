@@ -8,6 +8,133 @@ function normalizePlainTextLineBreaks(text: string): string {
 	return text.replace(/\r\n?/gu, "\n");
 }
 
+function decodePdfBytes(buffer: ArrayBuffer): string {
+	const bytes = new Uint8Array(buffer);
+	let result = "";
+	const chunkSize = 0x8000;
+
+	for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+		const chunk = bytes.subarray(offset, offset + chunkSize);
+		result += String.fromCharCode(...chunk);
+	}
+
+	return result;
+}
+
+function decodePdfLiteralString(value: string): string {
+	let result = "";
+	for (let index = 0; index < value.length; index += 1) {
+		const char = value[index]!;
+		if (char !== "\\") {
+			result += char;
+			continue;
+		}
+
+		const next = value[index + 1];
+		if (next === undefined) {
+			break;
+		}
+		index += 1;
+
+		if (next === "n") {
+			result += "\n";
+		} else if (next === "r") {
+			result += "\r";
+		} else if (next === "t") {
+			result += "\t";
+		} else if (next === "b" || next === "f") {
+			result += " ";
+		} else if (/^[0-7]$/u.test(next)) {
+			let octal = next;
+			for (let count = 0; count < 2 && /^[0-7]$/u.test(value[index + 1] ?? ""); count += 1) {
+				octal += value[index + 1];
+				index += 1;
+			}
+			result += String.fromCharCode(Number.parseInt(octal, 8));
+		} else {
+			result += next;
+		}
+	}
+
+	return result;
+}
+
+function decodePdfHexString(value: string): string {
+	const hex = value.replace(/\s+/gu, "");
+	let result = "";
+	for (let index = 0; index < hex.length - 1; index += 2) {
+		const code = Number.parseInt(hex.slice(index, index + 2), 16);
+		if (Number.isFinite(code)) {
+			result += String.fromCharCode(code);
+		}
+	}
+	return result;
+}
+
+function normalizeExtractedPdfText(text: string): string {
+	return normalizePlainTextLineBreaks(text)
+		.split("")
+		.map((char) => {
+			const code = char.charCodeAt(0);
+			return code < 32 && char !== "\n" && char !== "\t" ? " " : char;
+		})
+		.join("")
+		.replace(/[ \t]{2,}/gu, " ")
+		.replace(/\n{3,}/gu, "\n\n")
+		.trim();
+}
+
+function extractPdfOperatorText(rawPdf: string): string {
+	const textBlocks = rawPdf.match(/BT[\s\S]*?ET/gu) ?? [rawPdf];
+	const extracted: string[] = [];
+
+	for (const block of textBlocks) {
+		const literalMatches = block.matchAll(/\((?:\\.|[^\\()])*\)\s*(?:Tj|'|"|TJ)?/gu);
+		for (const match of literalMatches) {
+			const rawValue = match[0].replace(/\s*(?:Tj|'|"|TJ)?\s*$/u, "");
+			extracted.push(decodePdfLiteralString(rawValue.slice(1, -1)));
+		}
+
+		const hexMatches = block.matchAll(/<([0-9a-fA-F\s]+)>\s*(?:Tj|TJ)?/gu);
+		for (const match of hexMatches) {
+			extracted.push(decodePdfHexString(match[1] ?? ""));
+		}
+	}
+
+	return normalizeExtractedPdfText(extracted.join("\n"));
+}
+
+export function extractPdfTextContent(buffer: ArrayBuffer): {markdown: string; warnings: string[]} {
+	const rawPdf = decodePdfBytes(buffer);
+	const extracted = extractPdfOperatorText(rawPdf);
+	if (extracted.length >= 40) {
+		return {
+			markdown: extracted,
+			warnings: [],
+		};
+	}
+
+	const printableFallback = normalizeExtractedPdfText(rawPdf
+		.split("")
+		.map((char) => {
+			const code = char.charCodeAt(0);
+			return char === "\t" || char === "\n" || char === "\r" || code >= 32 ? char : " ";
+		})
+		.join(""));
+	if (printableFallback.length >= 80) {
+		return {
+			markdown: printableFallback,
+			warnings: ["PDF 文本提取使用了保守回退，排版和顺序可能不完整。"],
+		};
+	}
+
+	throw new PipelineError({
+		stage: "extract",
+		errorMessage: "无法在本地从 PDF 提取可读文本。",
+		suggestion: "该 PDF 可能是扫描件、加密文件或使用压缩文本流。请换用可复制文字的 PDF，或先将 PDF 转为文本后再导入。",
+	});
+}
+
 function extractReaderFallbackContent(text: string): WebpageExtractionResult | null {
 	const normalized = normalizePlainTextLineBreaks(text).trim();
 	if (!normalized) {
@@ -173,12 +300,12 @@ export function extractWebpageContent(html: string): WebpageExtractionResult {
 			}
 		}
 
-		if (!markdown) {
-			throw new PipelineError({
-				stage: "extract",
-				errorMessage: "No readable Markdown content could be extracted from the page.",
-				suggestion: "请确认链接是公开网页正文页，而不是需要登录或只返回脚本壳的页面。",
-			});
+			if (!markdown) {
+				throw new PipelineError({
+					stage: "extract",
+					errorMessage: "无法从网页提取可读 Markdown 内容。",
+					suggestion: "请确认链接是公开网页正文页，而不是需要登录或只返回脚本壳的页面。",
+				});
 		}
 
 		return {
@@ -195,7 +322,7 @@ export function extractWebpageContent(html: string): WebpageExtractionResult {
 
 		throw new PipelineError({
 			stage: "extract",
-			errorMessage: error instanceof Error ? error.message : "Failed to extract webpage content.",
+			errorMessage: error instanceof Error ? error.message : "网页正文提取失败。",
 			suggestion: "网页正文提取失败，请稍后重试，或换一个结构更简单的页面。",
 		});
 	}

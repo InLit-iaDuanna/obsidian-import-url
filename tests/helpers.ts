@@ -74,13 +74,23 @@ export class FakeVault {
 
 export class FakeWorkspace {
 	readonly openedFiles: FakeFile[] = [];
+	private activeFile: FakeFile | null = null;
 
 	getLeaf(): {openFile: (file: FakeFile) => Promise<void>} {
 		return {
 			openFile: async (file: FakeFile) => {
 				this.openedFiles.push(file);
+				this.activeFile = file;
 			},
 		};
+	}
+
+	getActiveFile(): FakeFile | null {
+		return this.activeFile;
+	}
+
+	setActiveFile(file: FakeFile): void {
+		this.activeFile = file;
 	}
 }
 

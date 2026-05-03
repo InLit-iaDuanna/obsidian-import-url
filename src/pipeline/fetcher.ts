@@ -24,14 +24,14 @@ function withTimeout<T>(
 			reject(new TimeoutError(stage, message));
 		}, timeoutMs);
 
-			void promise.then((value) => {
-				window.clearTimeout(timer);
-				resolve(value);
-			}).catch((error: unknown) => {
-				window.clearTimeout(timer);
-				reject(error instanceof Error ? error : new Error(String(error)));
-			});
+		void promise.then((value) => {
+			window.clearTimeout(timer);
+			resolve(value);
+		}).catch((error: unknown) => {
+			window.clearTimeout(timer);
+			reject(error instanceof Error ? error : new Error(String(error)));
 		});
+	});
 }
 
 export class Fetcher {
@@ -52,7 +52,7 @@ export class Fetcher {
 			}),
 			this.fetchTimeoutMs,
 			"fetch",
-			`HEAD request timed out after ${this.fetchTimeoutMs}ms.`,
+			`HEAD 请求在 ${this.fetchTimeoutMs}ms 后超时。`,
 		);
 	}
 
@@ -68,7 +68,23 @@ export class Fetcher {
 			}),
 			this.fetchTimeoutMs,
 			"fetch",
-			`GET request timed out after ${this.fetchTimeoutMs}ms.`,
+			`GET 请求在 ${this.fetchTimeoutMs}ms 后超时。`,
+		);
+	}
+
+	getBinaryUrl(url: string): Promise<RequestUrlResponse> {
+		return withTimeout(
+			requestUrl({
+				url,
+				method: "GET",
+				headers: {
+					Accept: "application/pdf,*/*;q=0.8",
+				},
+				throw: false,
+			}),
+			this.fetchTimeoutMs,
+			"fetch",
+			`GET 请求在 ${this.fetchTimeoutMs}ms 后超时。`,
 		);
 	}
 
@@ -88,7 +104,7 @@ export class Fetcher {
 			}),
 			this.aiTimeoutMs,
 			"ai_call",
-			`POST request timed out after ${this.aiTimeoutMs}ms.`,
+			`POST 请求在 ${this.aiTimeoutMs}ms 后超时。`,
 		);
 	}
 
@@ -111,7 +127,7 @@ export class Fetcher {
 			}),
 			this.aiTimeoutMs,
 			"ai_call",
-			`POST request timed out after ${this.aiTimeoutMs}ms.`,
+			`POST 请求在 ${this.aiTimeoutMs}ms 后超时。`,
 		);
 	}
 
@@ -129,7 +145,7 @@ export class Fetcher {
 			}),
 			this.fetchTimeoutMs,
 			"fetch",
-			`GET request timed out after ${this.fetchTimeoutMs}ms.`,
+			`GET 请求在 ${this.fetchTimeoutMs}ms 后超时。`,
 		);
 	}
 
@@ -145,7 +161,7 @@ export class Fetcher {
 			}),
 			this.fetchTimeoutMs,
 			"fetch",
-			`GET request timed out after ${this.fetchTimeoutMs}ms.`,
+			`GET 请求在 ${this.fetchTimeoutMs}ms 后超时。`,
 		);
 	}
 
@@ -155,7 +171,7 @@ export class Fetcher {
 			renderHtmlWithDesktopBrowser(url, Math.ceil(timeoutMs / 1000)),
 			timeoutMs,
 			"fetch",
-			`GET request timed out after ${timeoutMs}ms.`,
+			`GET 请求在 ${timeoutMs}ms 后超时。`,
 		);
 	}
 }

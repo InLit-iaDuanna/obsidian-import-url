@@ -24,6 +24,7 @@ export class Plugin {
 	readonly commands: Array<{id: string; name: string; callback: () => void}> = [];
 	readonly settingTabs: PluginSettingTab[] = [];
 	readonly ribbonIcons: Array<{icon: string; title: string; callback: () => void}> = [];
+	readonly views: Array<{type: string; viewCreator: (leaf: WorkspaceLeaf) => View}> = [];
 
 	constructor(app: App) {
 		this.app = app;
@@ -41,6 +42,10 @@ export class Plugin {
 		this.settingTabs.push(tab);
 	}
 
+	registerView(type: string, viewCreator: (leaf: WorkspaceLeaf) => View): void {
+		this.views.push({type, viewCreator});
+	}
+
 	async loadData(): Promise<unknown> {
 		return null;
 	}
@@ -56,6 +61,35 @@ export class PluginSettingTab {
 	constructor(app: App, plugin: Plugin) {
 		this.app = app;
 		this.plugin = plugin;
+	}
+}
+
+export class WorkspaceLeaf {
+	view: View | null = null;
+
+	async openFile(): Promise<void> {}
+
+	async setViewState(): Promise<void> {}
+}
+
+export abstract class View {
+	contentEl = document.createElement("div");
+	containerEl = document.createElement("div");
+
+	constructor(public leaf: WorkspaceLeaf) {}
+
+	protected async onOpen(): Promise<void> {}
+	protected async onClose(): Promise<void> {}
+	abstract getViewType(): string;
+	abstract getDisplayText(): string;
+	getIcon(): string { return ""; }
+}
+
+export abstract class ItemView extends View {
+	contentEl = document.createElement("div");
+
+	addAction(): HTMLElement {
+		return document.createElement("button");
 	}
 }
 

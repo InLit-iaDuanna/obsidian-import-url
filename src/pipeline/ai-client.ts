@@ -1,15 +1,16 @@
 import {Fetcher, TimeoutError} from "./fetcher";
 import {
 	ImportUrlPluginSettings,
-	OPENAI_MAX_OUTPUT_TOKENS,
+	MODEL_MAX_OUTPUT_TOKENS,
 	OpenAiResponsesApiResponse,
 	PipelineError,
 	StructuredDigest,
+	WikiConceptDraft,
 	WebpagePromptMetadata,
 } from "../types";
 import {PROMPT_VERSION, getPdfUserPrompt, getSystemPrompt, getWebpageUserPrompt} from "../prompts/digest-prompt";
 
-export const DEFAULT_API_BASE_URL = "https://api.openai.com/v1";
+export const DEFAULT_API_BASE_URL = "https://api.deepseek.com";
 const RETRY_DELAYS_MS = [2000, 5000];
 const PDF_DOWNLOAD_ERROR_PATTERN = /could not download|fetch failed|download failed|\b403\b|\b404\b/i;
 const UPSTREAM_FAILURE_PATTERN = /upstream request failed|model not found|no such model|unsupported model/i;
@@ -80,6 +81,7 @@ export const STRUCTURED_DIGEST_REQUIRED_FIELDS = [
 	"keyFacts",
 	"actionItems",
 	"fullOrganizedMarkdown",
+	"concepts",
 	"suggestedTags",
 	"warnings",
 ] as const satisfies ReadonlyArray<keyof StructuredDigest>;
@@ -93,6 +95,22 @@ export const DIGEST_SCHEMA = {
 		keyFacts: {type: "array", items: {type: "string"}},
 		actionItems: {type: "array", items: {type: "string"}},
 		fullOrganizedMarkdown: {type: "string"},
+		concepts: {
+			type: "array",
+			items: {
+				type: "object",
+				properties: {
+					title: {type: "string"},
+					aliases: {type: "array", items: {type: "string"}},
+					summary: {type: "string"},
+					evidence: {type: "array", items: {type: "string"}},
+					relatedConcepts: {type: "array", items: {type: "string"}},
+					confidence: {type: "number"},
+				},
+				required: ["title", "aliases", "summary", "evidence", "relatedConcepts", "confidence"],
+				additionalProperties: false,
+			},
+		},
 		suggestedTags: {type: "array", items: {type: "string"}},
 		warnings: {type: "array", items: {type: "string"}},
 	},
@@ -194,72 +212,20 @@ export function buildChatCompletionsApiUrl(apiBaseUrl: string): string {
 
 function getRequestCandidates(
 	apiBaseUrl: string,
-	mode: "webpage" | "pdf" | "test",
+	_mode: "webpage" | "pdf" | "test",
 ): RequestCandidate[] {
-	const endpoint = getApiEndpointInfo(apiBaseUrl);
 	const baseCandidates = getApiBaseCandidates(apiBaseUrl);
-	const preferredBase = baseCandidates.find((candidate) => candidate.isPreferred)?.baseUrl ?? endpoint.baseUrl;
-	const preferredBasePath = (() => {
-		try {
-			const parsed = new URL(preferredBase);
-			return parsed.pathname.replace(/\/+$/u, "");
-		} catch {
-			return "";
-		}
-	})();
-	const responseCandidates = baseCandidates.map((candidate) => ({
-		wireApi: "responses" as const,
-		requestUrl: buildResponsesApiUrl(candidate.baseUrl),
-		isPreferred: candidate.isPreferred,
-	}));
 	const chatCandidates = baseCandidates.map((candidate) => ({
 		wireApi: "chat_completions" as const,
 		requestUrl: buildChatCompletionsApiUrl(candidate.baseUrl),
 		isPreferred: candidate.isPreferred,
 	}));
 
-	if (mode === "pdf") {
-		return uniqueBaseUrls(responseCandidates.map((candidate) => candidate.requestUrl)).map((requestUrl) => ({
-			wireApi: "responses",
-			requestUrl,
-		}));
-	}
-
-	if (endpoint.explicitWireApi === undefined && (!preferredBasePath || preferredBasePath === "/")) {
-		return uniqueBaseUrls([
-			buildResponsesApiUrl(preferredBase),
-			buildChatCompletionsApiUrl(`${preferredBase.replace(/\/+$/u, "")}/v1`),
-		]).map((requestUrl) => ({
-			wireApi: requestUrl.endsWith("/responses") ? "responses" : "chat_completions",
-			requestUrl,
-		}));
-	}
-
-	if (endpoint.explicitWireApi === "chat_completions") {
-		return uniqueBaseUrls(chatCandidates.map((candidate) => candidate.requestUrl)).map((requestUrl) => ({
-			wireApi: "chat_completions",
-			requestUrl,
-		}));
-	}
-
-	if (endpoint.explicitWireApi === "responses") {
-		return uniqueBaseUrls([
-			...responseCandidates.filter((candidate) => candidate.isPreferred).map((candidate) => candidate.requestUrl),
-			...chatCandidates.filter((candidate) => !candidate.isPreferred).map((candidate) => candidate.requestUrl),
-			...chatCandidates.filter((candidate) => candidate.isPreferred).map((candidate) => candidate.requestUrl),
-		]).map((requestUrl) => ({
-			wireApi: requestUrl.endsWith("/responses") ? "responses" : "chat_completions",
-			requestUrl,
-		}));
-	}
-
 	return uniqueBaseUrls([
-		...responseCandidates.filter((candidate) => candidate.isPreferred).map((candidate) => candidate.requestUrl),
-		...responseCandidates.filter((candidate) => !candidate.isPreferred).map((candidate) => candidate.requestUrl),
-		...chatCandidates.filter((candidate) => !candidate.isPreferred).map((candidate) => candidate.requestUrl),
 		...chatCandidates.filter((candidate) => candidate.isPreferred).map((candidate) => candidate.requestUrl),
+		...chatCandidates.filter((candidate) => !candidate.isPreferred).map((candidate) => candidate.requestUrl),
 	]).map((requestUrl) => ({
-		wireApi: requestUrl.endsWith("/responses") ? "responses" : "chat_completions",
+		wireApi: "chat_completions",
 		requestUrl,
 	}));
 }
@@ -270,6 +236,25 @@ function isStringArray(value: unknown): value is string[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isWikiConceptDraft(value: unknown): value is WikiConceptDraft {
+	if (!isRecord(value)) {
+		return false;
+	}
+
+	return typeof value.title === "string"
+		&& isStringArray(value.aliases)
+		&& typeof value.summary === "string"
+		&& isStringArray(value.evidence)
+		&& isStringArray(value.relatedConcepts)
+		&& typeof value.confidence === "number"
+		&& Number.isFinite(value.confidence)
+		&& Object.keys(value).length === 6;
+}
+
+function isWikiConceptDraftArray(value: unknown): value is WikiConceptDraft[] {
+	return Array.isArray(value) && value.every((item) => isWikiConceptDraft(item));
 }
 
 function normalizeJsonText(rawText: string): string {
@@ -288,8 +273,10 @@ function getStructuredDigestJsonInstructions(): string {
 		"- keyFacts: string[]",
 		"- actionItems: string[]",
 		"- fullOrganizedMarkdown: string",
+		"- concepts: array of objects with title, aliases, summary, evidence, relatedConcepts, confidence",
 		"- suggestedTags: string[]",
 		"- warnings: string[]",
+		"concepts 中每个对象必须且只能包含：title string、aliases string[]、summary string、evidence string[]、relatedConcepts string[]、confidence number。",
 	].join("\n");
 }
 
@@ -317,19 +304,19 @@ function parseStructuredDigestText(rawText: string, isPdf: boolean): StructuredD
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(normalizeJsonText(rawText));
-	} catch {
-		throw new PipelineError({
-			stage: "ai_parse",
-			errorMessage: "OpenAI returned invalid JSON for structured digest.",
-			suggestion: isPdf ? getPdfSuggestion(rawText) : "模型返回了非 JSON 内容。请重试，或切换到更稳定支持结构化输出的模型。",
-		});
-	}
+		} catch {
+			throw new PipelineError({
+				stage: "ai_parse",
+				errorMessage: "模型接口返回的结构化整理结果不是有效 JSON。",
+				suggestion: isPdf ? getPdfSuggestion(rawText) : "模型返回了非 JSON 内容。请重试，或切换到更稳定支持结构化输出的模型。",
+			});
+		}
 
 	if (!validateStructuredDigest(parsed)) {
 		throw new PipelineError({
 			stage: "ai_parse",
-			errorMessage: "OpenAI returned JSON that does not match the structured digest schema.",
-			suggestion: isPdf ? getPdfSuggestion(rawText) : "模型返回的 JSON 不符合预期 schema。请切换模型，或检查接口是否支持 strict json_schema。",
+			errorMessage: "模型接口返回的 JSON 不符合结构化整理 schema。",
+			suggestion: isPdf ? getPdfSuggestion(rawText) : "模型返回的 JSON 不符合预期 schema。请切换模型，或检查接口是否支持 JSON 输出。",
 		});
 	}
 
@@ -348,6 +335,7 @@ export function validateStructuredDigest(payload: unknown): payload is Structure
 		&& isStringArray(candidate.keyPoints)
 		&& isStringArray(candidate.keyFacts)
 		&& isStringArray(candidate.actionItems)
+		&& isWikiConceptDraftArray(candidate.concepts)
 		&& isStringArray(candidate.suggestedTags)
 		&& isStringArray(candidate.warnings)
 		&& Object.keys(candidate).length === STRUCTURED_DIGEST_REQUIRED_FIELDS.length;
@@ -355,7 +343,7 @@ export function validateStructuredDigest(payload: unknown): payload is Structure
 
 function getPdfSuggestion(message: string): string {
 	if (PDF_DOWNLOAD_ERROR_PATTERN.test(message)) {
-		return "OpenAI 无法直接下载此 PDF。请确认该链接在浏览器中无需登录即可直接下载，且不受地域限制、临时签名或反爬策略影响。";
+		return "PDF 内容无法提取。请确认该链接在浏览器中无需登录即可直接下载，且不受地域限制、临时签名或反爬策略影响。";
 	}
 
 	return "请确认该 PDF 链接是公开、直达、无需登录的下载地址。";
@@ -363,7 +351,7 @@ function getPdfSuggestion(message: string): string {
 
 function defaultAiCallSuggestion(isPdf: boolean, model: string, requestUrl: string): string {
 	if (isPdf) {
-		return "请确认 PDF 链接公开可访问，且当前模型与接口支持 Responses API 的 PDF 输入。";
+		return "请确认 PDF 链接公开可访问，且文本可以在本地提取后发送给当前模型接口。";
 	}
 
 	return `AI 接口调用失败。请检查模型 ${model} 是否可用，并确认接口 ${requestUrl} 支持当前请求格式。`;
@@ -371,10 +359,10 @@ function defaultAiCallSuggestion(isPdf: boolean, model: string, requestUrl: stri
 
 function defaultAiParseSuggestion(isPdf: boolean, model: string, requestUrl: string): string {
 	if (isPdf) {
-		return "模型已返回结果，但结构化解析失败。请重试，或切换到更稳定支持 Structured Outputs 的接口。";
+		return "模型已返回结果，但结构化解析失败。请重试，或切换到更稳定支持 JSON 输出的接口。";
 	}
 
-	return `模型已响应，但返回内容不符合结构化输出要求。请重试，或确认模型 ${model} 在接口 ${requestUrl} 上支持 Structured Outputs。`;
+	return `模型已响应，但返回内容不符合结构化输出要求。请重试，或确认模型 ${model} 在接口 ${requestUrl} 上支持 JSON 输出。`;
 }
 
 function getApiErrorMessage(responseText: string): string {
@@ -390,19 +378,19 @@ function getApiErrorMessage(responseText: string): string {
 
 function summarizeResponseShape(payload: unknown): string {
 	if (!isRecord(payload)) {
-		return `Response type: ${payload === null ? "null" : typeof payload}.`;
+		return `响应类型：${payload === null ? "null" : typeof payload}。`;
 	}
 
 	const topLevelKeys = Object.keys(payload).slice(0, 8);
 	const segments = [
-		`Top-level keys: ${topLevelKeys.length > 0 ? topLevelKeys.join(", ") : "(none)"}.`,
+		`顶层字段：${topLevelKeys.length > 0 ? topLevelKeys.join(", ") : "无"}。`,
 	];
 
 	for (const key of ["data", "result", "response", "message"] as const) {
 		const nested = payload[key];
 		if (isRecord(nested)) {
 			const nestedKeys = Object.keys(nested).slice(0, 8);
-			segments.push(`${key} keys: ${nestedKeys.length > 0 ? nestedKeys.join(", ") : "(none)"}.`);
+			segments.push(`${key} 字段：${nestedKeys.length > 0 ? nestedKeys.join(", ") : "无"}。`);
 		}
 	}
 
@@ -552,17 +540,17 @@ function buildAiCallFailure(
 	if (isPdf) {
 		suggestion = getPdfSuggestion(message);
 	} else if (httpStatus === 401) {
-		suggestion = "接口已收到请求，但 API key 无效或未正确传递。请重新保存密钥后再试。";
+		suggestion = "接口已收到请求，但 API 密钥无效或未正确传递。请重新保存密钥后再试。";
 	} else if (httpStatus === 404 || httpStatus === 405) {
 		suggestion = context.wireApi === "responses"
-			? `当前接口 ${context.requestUrl} 不可用。请检查是否应填写完整的 /responses 地址；如果这是 OpenAI-compatible 网关，也可能只支持 /chat/completions。`
+			? `当前接口 ${context.requestUrl} 不可用。请检查模型 API 地址是否正确。`
 			: `当前接口 ${context.requestUrl} 不可用。请检查是否应填写完整的 /chat/completions 地址，或为模型 ${context.model} 单独配置 API URL。`;
 	} else if (httpStatus === 429) {
 		suggestion = `当前接口对模型 ${context.model} 限流了。请稍后重试，或切换到其它模型 / 网关。`;
 	} else if ([500, 502, 503, 504].includes(httpStatus) || UPSTREAM_FAILURE_PATTERN.test(message)) {
 		suggestion = `兼容网关已收到请求，但上游模型调用失败。请检查模型 ${context.model} 是否在该地址可用；如果不同模型需要不同地址，请在设置里为它单独配置 API URL。`;
 	} else if (context.wireApi === "responses" && UNSUPPORTED_RESPONSES_PATTERN.test(message)) {
-		suggestion = "当前兼容接口看起来不支持 Responses API。插件会自动回退到 chat/completions；如果你手动填写地址，也可以直接填完整的 /chat/completions。";
+		suggestion = "当前接口不支持该请求格式。请使用支持 chat/completions JSON 输出的模型 API 地址。";
 	} else {
 		suggestion = defaultAiCallSuggestion(isPdf, context.model, context.requestUrl);
 	}
@@ -728,29 +716,29 @@ function normalizeChatCompletionsResponse(response: OpenAiChatCompletionsRespons
 
 export function parseStructuredDigestResponse(response: OpenAiResponsesApiResponse, isPdf: boolean): StructuredDigest {
 	if (response.status !== "completed") {
-		throw new PipelineError({
-			stage: "ai_parse",
-			errorMessage: `OpenAI response status was ${response.status ?? "unknown"}${response.error?.message ? `: ${response.error.message}` : ""}.`,
-			suggestion: isPdf ? getPdfSuggestion(response.error?.message ?? "") : "模型返回了未完成状态。请重试，或切换到更稳定支持 Structured Outputs 的模型。",
-		});
-	}
+			throw new PipelineError({
+				stage: "ai_parse",
+				errorMessage: `模型接口响应状态为 ${response.status ?? "unknown"}${response.error?.message ? `：${response.error.message}` : ""}。`,
+				suggestion: isPdf ? getPdfSuggestion(response.error?.message ?? "") : "模型返回了未完成状态。请重试，或切换到更稳定支持 JSON 输出的模型。",
+			});
+		}
 
 	if (hasRefusal(response)) {
-		throw new PipelineError({
-			stage: "ai_parse",
-			errorMessage: "OpenAI returned a refusal instead of structured output.",
-			suggestion: isPdf ? getPdfSuggestion("") : "模型拒绝了结构化输出请求。请切换模型，或检查接口是否支持当前请求格式。",
-		});
-	}
+			throw new PipelineError({
+				stage: "ai_parse",
+				errorMessage: "模型接口返回了拒绝消息，而不是结构化输出。",
+				suggestion: isPdf ? getPdfSuggestion("") : "模型拒绝了结构化输出请求。请切换模型，或检查接口是否支持当前请求格式。",
+			});
+		}
 
 	const rawText = extractOutputText(response);
 	if (!rawText) {
-		throw new PipelineError({
-			stage: "ai_parse",
-			errorMessage: "OpenAI returned no assistant output_text payload.",
-			suggestion: isPdf ? getPdfSuggestion("") : "接口没有返回可解析的文本结果。请重试，或检查该模型是否兼容 Responses API。",
-		});
-	}
+			throw new PipelineError({
+				stage: "ai_parse",
+				errorMessage: "模型接口没有返回可解析的 output_text 内容。",
+				suggestion: isPdf ? getPdfSuggestion("") : "接口没有返回可解析的文本结果。请重试，或检查该模型是否支持 JSON 输出。",
+			});
+		}
 
 	return parseStructuredDigestText(rawText, isPdf);
 }
@@ -762,22 +750,22 @@ function parseStructuredDigestChatCompletionsResponse(
 	const normalized = normalizeChatCompletionsResponse(response);
 
 	if (hasChatCompletionRefusal(normalized)) {
-		throw new PipelineError({
-			stage: "ai_parse",
-			errorMessage: "OpenAI-compatible API returned a refusal instead of structured output.",
-			suggestion: isPdf ? getPdfSuggestion("") : "模型拒绝了结构化输出请求。请切换模型，或检查接口是否支持当前请求格式。",
-		});
-	}
+			throw new PipelineError({
+				stage: "ai_parse",
+				errorMessage: "模型接口返回了拒绝消息，而不是结构化输出。",
+				suggestion: isPdf ? getPdfSuggestion("") : "模型拒绝了结构化输出请求。请切换模型，或检查接口是否支持当前请求格式。",
+			});
+		}
 
 	const rawText = extractChatCompletionText(normalized);
 	if (!rawText) {
-		const preview = summarizeResponsePreview(response);
-		throw new PipelineError({
-			stage: "ai_parse",
-			errorMessage: `OpenAI-compatible API returned no assistant message content. ${summarizeResponseShape(response)}${preview ? ` Preview: ${preview}` : ""}`,
-			suggestion: isPdf ? getPdfSuggestion("") : "接口没有返回可解析的文本结果。请重试，或检查该模型是否兼容 chat/completions 结构化输出。",
-		});
-	}
+			const preview = summarizeResponsePreview(response);
+			throw new PipelineError({
+				stage: "ai_parse",
+				errorMessage: `模型接口没有返回可解析的 assistant message 内容。${summarizeResponseShape(response)}${preview ? ` 预览：${preview}` : ""}`,
+				suggestion: isPdf ? getPdfSuggestion("") : "接口没有返回可解析的文本结果。请重试，或检查该模型是否兼容 chat/completions 结构化输出。",
+			});
+		}
 
 	return parseStructuredDigestText(rawText, isPdf);
 }
@@ -801,7 +789,7 @@ function enrichPipelineErrorContext(
 function isMissingAssistantOutputError(error: unknown): error is PipelineError {
 	return error instanceof PipelineError
 		&& error.failureInfo.stage === "ai_parse"
-		&& /no assistant output_text payload|no assistant message content/iu.test(error.failureInfo.errorMessage);
+		&& /no assistant output_text payload|no assistant message content|没有返回可解析的 output_text|没有返回可解析的 assistant message/iu.test(error.failureInfo.errorMessage);
 }
 
 export class AiClient {
@@ -850,7 +838,7 @@ export class AiClient {
 			throw lastError;
 		}
 
-		throw new Error("Connection test failed.");
+		throw new Error("连接测试失败。");
 	}
 
 	async digestWebpage(params: {
@@ -881,13 +869,28 @@ export class AiClient {
 	async digestPdf(params: {
 		sourceUrl: string;
 		sourceTitle: string;
+		markdown: string;
+		warnings: string[];
 	}): Promise<StructuredDigest> {
-		const candidate = getRequestCandidates(this.settings.apiBaseUrl, "pdf")[0];
-		if (!candidate) {
-			throw new Error("No API endpoint candidate available for PDF imports.");
+		const candidates = getRequestCandidates(this.settings.apiBaseUrl, "pdf");
+		let lastError: unknown = null;
+
+		for (let index = 0; index < candidates.length; index += 1) {
+			const candidate = candidates[index]!;
+
+			try {
+				const body = this.buildPdfRequestBody(params);
+				return await this.runRequest(candidate.requestUrl, body, candidate.wireApi, true);
+			} catch (error) {
+				lastError = error;
+				const hasMoreCandidates = index < candidates.length - 1;
+				if (!hasMoreCandidates || !this.shouldTryAlternateWireApi(error, candidate.wireApi)) {
+					throw error;
+				}
+			}
 		}
-		const body = this.buildPdfRequestBody(params);
-		return this.runRequest(candidate.requestUrl, body, candidate.wireApi, true);
+
+		throw lastError instanceof Error ? lastError : new Error("PDF 内容整理请求失败。");
 	}
 
 	private async runConnectionTest(candidate: RequestCandidate): Promise<void> {
@@ -924,11 +927,11 @@ export class AiClient {
 		let parsed: OpenAiResponsesApiResponse | OpenAiChatCompletionsResponse;
 		try {
 			parsed = JSON.parse(responseText) as OpenAiResponsesApiResponse | OpenAiChatCompletionsResponse;
-		} catch {
-			throw new PipelineError({
-				stage: "ai_parse",
-				errorMessage: "Connection test received a non-JSON response body.",
-				suggestion: defaultAiParseSuggestion(false, this.settings.model, candidate.requestUrl),
+			} catch {
+				throw new PipelineError({
+					stage: "ai_parse",
+					errorMessage: "连接测试收到了非 JSON 响应体。",
+					suggestion: defaultAiParseSuggestion(false, this.settings.model, candidate.requestUrl),
 				model: this.settings.model,
 				apiBaseUrl: this.settings.apiBaseUrl,
 				requestUrl: candidate.requestUrl,
@@ -946,11 +949,11 @@ export class AiClient {
 
 		try {
 			payload = JSON.parse(normalizeJsonText(rawText));
-		} catch {
-			throw new PipelineError({
-				stage: "ai_parse",
-				errorMessage: "Connection test returned invalid JSON content.",
-				suggestion: defaultAiParseSuggestion(false, this.settings.model, candidate.requestUrl),
+			} catch {
+				throw new PipelineError({
+					stage: "ai_parse",
+					errorMessage: "连接测试返回了无效 JSON 内容。",
+					suggestion: defaultAiParseSuggestion(false, this.settings.model, candidate.requestUrl),
 				model: this.settings.model,
 				apiBaseUrl: this.settings.apiBaseUrl,
 				requestUrl: candidate.requestUrl,
@@ -959,10 +962,10 @@ export class AiClient {
 
 		const connectionPayload = payload as {ok?: unknown; model?: unknown};
 		if (connectionPayload.ok !== true || typeof connectionPayload.model !== "string") {
-			throw new PipelineError({
-				stage: "ai_parse",
-				errorMessage: "Connection test returned JSON without the expected ok/model fields.",
-				suggestion: defaultAiParseSuggestion(false, this.settings.model, candidate.requestUrl),
+				throw new PipelineError({
+					stage: "ai_parse",
+					errorMessage: "连接测试返回的 JSON 缺少预期的 ok/model 字段。",
+					suggestion: defaultAiParseSuggestion(false, this.settings.model, candidate.requestUrl),
 				model: this.settings.model,
 				apiBaseUrl: this.settings.apiBaseUrl,
 				requestUrl: candidate.requestUrl,
@@ -971,11 +974,11 @@ export class AiClient {
 	}
 
 	private extractConnectionTestTextFromResponses(response: OpenAiResponsesApiResponse, requestUrl: string): string {
-		if (response.status !== "completed") {
-			throw new PipelineError({
-				stage: "ai_parse",
-				errorMessage: `Connection test response status was ${response.status ?? "unknown"}${response.error?.message ? `: ${response.error.message}` : ""}.`,
-				suggestion: defaultAiParseSuggestion(false, this.settings.model, requestUrl),
+			if (response.status !== "completed") {
+				throw new PipelineError({
+					stage: "ai_parse",
+					errorMessage: `连接测试响应状态为 ${response.status ?? "unknown"}${response.error?.message ? `：${response.error.message}` : ""}。`,
+					suggestion: defaultAiParseSuggestion(false, this.settings.model, requestUrl),
 				model: this.settings.model,
 				apiBaseUrl: this.settings.apiBaseUrl,
 				requestUrl,
@@ -983,10 +986,10 @@ export class AiClient {
 		}
 
 		if (hasRefusal(response)) {
-			throw new PipelineError({
-				stage: "ai_parse",
-				errorMessage: "Connection test was refused by the model.",
-				suggestion: defaultAiParseSuggestion(false, this.settings.model, requestUrl),
+				throw new PipelineError({
+					stage: "ai_parse",
+					errorMessage: "连接测试被模型拒绝。",
+					suggestion: defaultAiParseSuggestion(false, this.settings.model, requestUrl),
 				model: this.settings.model,
 				apiBaseUrl: this.settings.apiBaseUrl,
 				requestUrl,
@@ -995,10 +998,10 @@ export class AiClient {
 
 		const rawText = extractOutputText(response);
 		if (!rawText) {
-			throw new PipelineError({
-				stage: "ai_parse",
-				errorMessage: "Connection test returned no assistant output_text payload.",
-				suggestion: defaultAiParseSuggestion(false, this.settings.model, requestUrl),
+				throw new PipelineError({
+					stage: "ai_parse",
+					errorMessage: "连接测试没有返回可解析的 output_text 内容。",
+					suggestion: defaultAiParseSuggestion(false, this.settings.model, requestUrl),
 				model: this.settings.model,
 				apiBaseUrl: this.settings.apiBaseUrl,
 				requestUrl,
@@ -1013,10 +1016,10 @@ export class AiClient {
 		requestUrl: string,
 	): string {
 		if (hasChatCompletionRefusal(response)) {
-			throw new PipelineError({
-				stage: "ai_parse",
-				errorMessage: "Connection test was refused by the model.",
-				suggestion: defaultAiParseSuggestion(false, this.settings.model, requestUrl),
+				throw new PipelineError({
+					stage: "ai_parse",
+					errorMessage: "连接测试被模型拒绝。",
+					suggestion: defaultAiParseSuggestion(false, this.settings.model, requestUrl),
 				model: this.settings.model,
 				apiBaseUrl: this.settings.apiBaseUrl,
 				requestUrl,
@@ -1025,10 +1028,10 @@ export class AiClient {
 
 		const rawText = extractChatCompletionText(response);
 		if (!rawText) {
-			throw new PipelineError({
-				stage: "ai_parse",
-				errorMessage: "Connection test returned no assistant message content.",
-				suggestion: defaultAiParseSuggestion(false, this.settings.model, requestUrl),
+				throw new PipelineError({
+					stage: "ai_parse",
+					errorMessage: "连接测试没有返回可解析的 assistant message 内容。",
+					suggestion: defaultAiParseSuggestion(false, this.settings.model, requestUrl),
 				model: this.settings.model,
 				apiBaseUrl: this.settings.apiBaseUrl,
 				requestUrl,
@@ -1123,14 +1126,14 @@ export class AiClient {
 						&& lastError.failureInfo.httpStatus !== undefined
 						&& [429, 500, 502, 503, 504].includes(lastError.failureInfo.httpStatus));
 
-					const retryDelay = RETRY_DELAYS_MS[attempt];
-					if (!retryable || retryDelay === undefined) {
-						break;
-					}
-
-					await sleep(retryDelay);
+				const retryDelay = RETRY_DELAYS_MS[attempt];
+				if (!retryable || retryDelay === undefined) {
+					break;
 				}
+
+				await sleep(retryDelay);
 			}
+		}
 
 		if (lastError instanceof TimeoutError) {
 			throw new PipelineError({
@@ -1146,7 +1149,7 @@ export class AiClient {
 		if (lastError instanceof SyntaxError) {
 			throw new PipelineError({
 				stage: "ai_parse",
-				errorMessage: "OpenAI returned a non-JSON response body.",
+				errorMessage: "模型接口返回了非 JSON 响应体。",
 				suggestion: defaultAiParseSuggestion(isPdf, this.settings.model, requestUrl),
 				model: this.settings.model,
 				apiBaseUrl: this.settings.apiBaseUrl,
@@ -1160,7 +1163,7 @@ export class AiClient {
 
 		throw new PipelineError({
 			stage: "ai_call",
-			errorMessage: lastError instanceof Error ? lastError.message : "Unknown OpenAI request failure.",
+			errorMessage: lastError instanceof Error ? lastError.message : "未知模型接口请求失败。",
 			suggestion: defaultAiCallSuggestion(isPdf, this.settings.model, requestUrl),
 			model: this.settings.model,
 			apiBaseUrl: this.settings.apiBaseUrl,
@@ -1230,6 +1233,13 @@ export class AiClient {
 	}
 
 	private shouldTryAlternateWireApi(error: unknown, wireApi: WireApi): boolean {
+		if (wireApi === "chat_completions") {
+			return error instanceof PipelineError
+				&& error.failureInfo.stage === "ai_call"
+				&& error.failureInfo.httpStatus !== undefined
+				&& [404, 405, 500, 502, 503, 504].includes(error.failureInfo.httpStatus);
+		}
+
 		if (wireApi !== "responses") {
 			return false;
 		}
@@ -1266,6 +1276,7 @@ export class AiClient {
 						content: "Respond with a JSON object like {\"ok\":true,\"model\":\"<model>\"}.",
 					},
 				],
+				response_format: {type: "json_object"},
 				...getChatCompletionTokenLimit(80, this.settings.model),
 				...this.buildSamplingOptions(),
 			};
@@ -1308,41 +1319,24 @@ export class AiClient {
 	private buildPdfRequestBody(params: {
 		sourceUrl: string;
 		sourceTitle: string;
+		markdown: string;
+		warnings: string[];
 	}): Record<string, unknown> {
 		return {
 			model: this.settings.model,
-			instructions: getSystemPrompt(this.settings.defaultLanguage),
-			input: [
+			messages: [
+				{
+					role: "system",
+					content: `${getSystemPrompt(this.settings.defaultLanguage)}\n${getStructuredDigestJsonInstructions()}`,
+				},
 				{
 					role: "user",
-					content: [
-						{
-							type: "input_file",
-							file_url: params.sourceUrl,
-						},
-						{
-							type: "input_text",
-							text: getPdfUserPrompt(params.sourceUrl, params.sourceTitle),
-						},
-					],
+					content: getPdfUserPrompt(params.sourceUrl, params.sourceTitle, params.markdown, params.warnings),
 				},
 			],
-			text: {
-				format: {
-					type: "json_schema",
-					name: "structured_digest",
-					schema: DIGEST_SCHEMA,
-					strict: true,
-				},
-			},
-			truncation: "disabled",
-			max_output_tokens: OPENAI_MAX_OUTPUT_TOKENS,
-			store: false,
+			response_format: {type: "json_object"},
+			...getChatCompletionTokenLimit(MODEL_MAX_OUTPUT_TOKENS, this.settings.model),
 			...this.buildSamplingOptions(),
-			metadata: {
-				prompt_version: PROMPT_VERSION,
-				source_type: "pdf",
-			},
 		};
 	}
 
@@ -1379,7 +1373,8 @@ export class AiClient {
 						content: prompt,
 					},
 				],
-				...getChatCompletionTokenLimit(OPENAI_MAX_OUTPUT_TOKENS, this.settings.model),
+				response_format: {type: "json_object"},
+				...getChatCompletionTokenLimit(MODEL_MAX_OUTPUT_TOKENS, this.settings.model),
 				...this.buildSamplingOptions(),
 			};
 		}
@@ -1412,7 +1407,7 @@ export class AiClient {
 				},
 			},
 			truncation: "disabled",
-			max_output_tokens: OPENAI_MAX_OUTPUT_TOKENS,
+			max_output_tokens: MODEL_MAX_OUTPUT_TOKENS,
 			store: false,
 			...this.buildSamplingOptions(),
 			...(compatibilityFallback

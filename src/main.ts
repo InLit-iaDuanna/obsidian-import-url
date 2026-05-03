@@ -3,6 +3,7 @@ import {registerImportUrlCommands} from "./commands";
 import {ImportController} from "./import-controller";
 import {DEFAULT_SETTINGS, ImportUrlSettingTab} from "./settings";
 import {ImportUrlPluginSettings} from "./types";
+import {WIKI_MANAGER_VIEW_TYPE, WikiManagerView} from "./wiki-manager-view";
 
 export default class ImportUrlPlugin extends Plugin {
 	settings: ImportUrlPluginSettings = DEFAULT_SETTINGS;
@@ -12,9 +13,23 @@ export default class ImportUrlPlugin extends Plugin {
 		await this.loadSettings();
 		await this.getController().initialize();
 
+		this.registerView(WIKI_MANAGER_VIEW_TYPE, (leaf) => new WikiManagerView(leaf, {
+			loadOverview: (sortMode) => this.getController().getWikiOverview(sortMode),
+			approveCandidate: (path, graphVisible) => this.getController().approveWikiCandidate(path, graphVisible),
+			rejectCandidate: (path) => this.getController().rejectWikiCandidate(path),
+			setConceptGraphVisibility: (path, graphVisible) => this.getController().setWikiConceptGraphVisibility(path, graphVisible),
+			cleanupLegacyGraphLinks: () => this.getController().cleanupLegacyConceptGraphLinks(),
+			rebuildConceptGraph: () => this.getController().rebuildWikiConceptGraph(),
+			openPath: (path) => this.getController().openVaultPath(path),
+		}));
+
 		registerImportUrlCommands(this, {
 			openImportModal: () => this.getController().openImportModal(),
 			openConfigToml: () => this.getController().openConfigToml(),
+			openWikiIndex: () => this.getController().openWikiIndex(),
+			openWikiManager: () => this.getController().openWikiManager(),
+			approveCurrentWikiCandidate: () => this.getController().approveCurrentWikiCandidate(),
+			rejectCurrentWikiCandidate: () => this.getController().rejectCurrentWikiCandidate(),
 			importClipboardUrl: () => this.getController().importClipboardUrl(),
 		});
 
@@ -33,9 +48,16 @@ export default class ImportUrlPlugin extends Plugin {
 		await this.getController().openConfigToml();
 	}
 
+	async persistModelSelection(model: string): Promise<void> {
+		await this.getController().persistModelSelection(model);
+	}
+
 	async loadSettings(): Promise<void> {
 		const loaded = await this.readStoredSettingsSafely();
-		this.getController().loadStoredSettings(loaded);
+		const migrated = this.getController().loadStoredSettings(loaded);
+		if (migrated) {
+			await this.saveSettings();
+		}
 	}
 
 	private getController(): ImportController {
@@ -50,7 +72,7 @@ export default class ImportUrlPlugin extends Plugin {
 			return await this.loadData() as Partial<ImportUrlPluginSettings> | null;
 		} catch (error) {
 			console.error("[import-url] failed to read data.json, falling back to defaults", error);
-			new Notice("Settings file is invalid. Restored defaults automatically.", 7000);
+			new Notice("设置文件无效，已自动恢复默认值。", 7000);
 
 			this.settings = Object.assign({}, DEFAULT_SETTINGS);
 			try {

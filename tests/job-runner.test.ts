@@ -15,6 +15,16 @@ const sampleDigest = {
 	keyFacts: ["事实"],
 	actionItems: ["行动"],
 	fullOrganizedMarkdown: "# 正文",
+	concepts: [
+		{
+			title: "核心概念",
+			aliases: ["概念别名"],
+			summary: "概念摘要",
+			evidence: ["正文证据"],
+			relatedConcepts: ["相关概念"],
+			confidence: 0.8,
+		},
+	],
 	suggestedTags: ["clip"],
 	warnings: [],
 };
@@ -22,6 +32,7 @@ const sampleDigest = {
 function createSettings() {
 	return {
 		...DEFAULT_SETTINGS,
+		model: "deepseek-v4-pro",
 		siteJsonFallbackEnabled: true,
 		readerFallbackEnabled: false,
 		browserRenderFallbackEnabled: false,
@@ -92,9 +103,19 @@ describe("job-runner", () => {
 		await runner.run("https://example.com/article");
 
 		const files = vault.listFiles().map((file) => file.path);
-		expect(files).toContain("Inbox/Clippings/2026-04-13 1234 - 整理标题.md");
-		expect(vault.read("Inbox/Clippings/2026-04-13 1234 - 整理标题.md")).toContain("# 摘要");
-		expect(workspace.openedFiles[0]?.path).toBe("Inbox/Clippings/2026-04-13 1234 - 整理标题.md");
+		expect(files).toContain("我的知识库/成文/2026-04-13 1234 - AI整理 - 整理标题.md");
+		expect(files).toContain("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md");
+		expect(vault.read("我的知识库/成文/2026-04-13 1234 - AI整理 - 整理标题.md")).toContain("# 整理标题");
+		expect(vault.read("我的知识库/成文/2026-04-13 1234 - AI整理 - 整理标题.md")).toContain("graph_group: 'import-url-article'");
+		expect(vault.read("我的知识库/成文/2026-04-13 1234 - AI整理 - 整理标题.md")).toContain("'import-url/article'");
+		expect(vault.read("我的知识库/成文/2026-04-13 1234 - AI整理 - 整理标题.md")).toContain("## 成文整理");
+		expect(vault.read("我的知识库/成文/2026-04-13 1234 - AI整理 - 整理标题.md")).toContain("原文笔记路径：我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md");
+		expect(vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md")).toContain("# 原文");
+		expect(vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md")).toContain("graph_group: 'import-url-original'");
+		expect(vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md")).toContain("'import-url/original'");
+		expect(vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md")).toContain("正文");
+		expect(vault.read("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md")).toContain("AI 整理笔记路径：我的知识库/成文/2026-04-13 1234 - AI整理 - 整理标题.md");
+		expect(workspace.openedFiles[0]?.path).toBe("我的知识库/成文/2026-04-13 1234 - AI整理 - 整理标题.md");
 	});
 
 	it("falls back to body HTML when Readability parsing fails inside the pipeline", async () => {
@@ -177,8 +198,64 @@ describe("job-runner", () => {
 		await runner.run("https://example.com/article");
 
 		expect(getReaderTextUrl).toHaveBeenCalledWith("https://example.com/article");
-		const content = vault.read("Inbox/Clippings/2026-04-14 0841 - 整理标题.md");
-		expect(content).toContain("Direct webpage fetch failed. Content was fetched through r.jina.ai reader fallback");
+		const content = vault.read("我的知识库/成文/2026-04-14 0841 - AI整理 - 整理标题.md");
+		expect(content).toContain("网页正文已通过 r.jina.ai 阅读模式获取");
+	});
+
+	it("uses reader fallback when direct HTML succeeds but extraction finds only a shell", async () => {
+		const {app, vault} = createFakeApp();
+		let capturedMarkdown = "";
+		const getReaderTextUrl = vi.fn().mockResolvedValue(createResponse(
+			200,
+			[
+				"Title: Reader Title",
+				"",
+				"URL Source: https://example.com/shell",
+				"",
+				"Markdown Content:",
+				"# Reader markdown",
+				"",
+				"正文段落",
+			].join("\n"),
+			{"content-type": "text/plain"},
+		));
+		const fetcher = {
+			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
+			getTextUrl: vi.fn().mockResolvedValue(createResponse(
+				200,
+				"<html><head><title>Shell</title></head><body><script>window.__DATA__={}</script></body></html>",
+				{"content-type": "text/html"},
+			)),
+			getReaderTextUrl,
+		} as unknown as Fetcher;
+
+		const runner = new JobRunner({
+			app,
+			getSettings: () => ({
+				...createSettings(),
+				readerFallbackEnabled: true,
+			}),
+			getApiKey: async () => "sk-test",
+			deps: {
+				now: () => new Date(2026, 3, 14, 8, 42, 35),
+				randomSuffix: () => "beef",
+				createFetcher: () => fetcher,
+				createAiClient: () => ({
+					digestWebpage: vi.fn().mockImplementation(async ({markdown}: {markdown: string}) => {
+						capturedMarkdown = markdown;
+						return sampleDigest;
+					}),
+					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
+				}) as unknown as AiClient,
+			},
+		});
+
+		await runner.run("https://example.com/shell");
+
+		expect(getReaderTextUrl).toHaveBeenCalledWith("https://example.com/shell");
+		expect(capturedMarkdown).toContain("# Reader markdown");
+		const content = vault.read("我的知识库/成文/2026-04-14 0842 - AI整理 - 整理标题.md");
+		expect(content).toContain("网页正文已通过 r.jina.ai 阅读模式获取");
 	});
 
 	it("uses site JSON fallback for discourse-style topic pages", async () => {
@@ -230,8 +307,8 @@ describe("job-runner", () => {
 		await runner.run("https://linux.do/t/topic/1782304");
 
 		expect(getJsonUrl).toHaveBeenCalledWith("https://linux.do/t/topic/1782304.json");
-		const content = vault.read("Inbox/Clippings/2026-04-14 0930 - 整理标题.md");
-		expect(content).toContain("HTML fetch failed. Content was extracted from a site-specific JSON endpoint");
+		const content = vault.read("我的知识库/成文/2026-04-14 0930 - AI整理 - 整理标题.md");
+		expect(content).toContain("内容已从站点 JSON 接口提取");
 	});
 
 	it("prefers site JSON for discourse pages even when HTML fetch succeeds", async () => {
@@ -332,8 +409,55 @@ describe("job-runner", () => {
 		await runner.run("https://example.com/rendered");
 
 		expect(getBrowserRenderedHtml).toHaveBeenCalledWith("https://example.com/rendered");
-		const content = vault.read("Inbox/Clippings/2026-04-14 0931 - 整理标题.md");
-		expect(content).toContain("Direct and standard fallbacks failed. Content was extracted from desktop browser-rendered HTML");
+		const content = vault.read("我的知识库/成文/2026-04-14 0931 - AI整理 - 整理标题.md");
+		expect(content).toContain("网页正文已从桌面浏览器渲染后的 HTML 提取");
+	});
+
+	it("uses browser render fallback when direct HTML extraction finds only a shell", async () => {
+		const {app, vault} = createFakeApp();
+		let capturedMarkdown = "";
+		const getBrowserRenderedHtml = vi.fn().mockResolvedValue(createResponse(
+			200,
+			"<html><head><title>Rendered Title</title></head><body><article><p>渲染正文</p></article></body></html>",
+			{"content-type": "text/html"},
+		));
+		const fetcher = {
+			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {"content-type": "text/html"})),
+			getTextUrl: vi.fn().mockResolvedValue(createResponse(
+				200,
+				"<html><head><title>Shell</title></head><body><script>window.__DATA__={}</script></body></html>",
+				{"content-type": "text/html"},
+			)),
+			getBrowserRenderedHtml,
+		} as unknown as Fetcher;
+
+		const runner = new JobRunner({
+			app,
+			getSettings: () => ({
+				...createSettings(),
+				browserRenderFallbackEnabled: true,
+			}),
+			getApiKey: async () => "sk-test",
+			deps: {
+				now: () => new Date(2026, 3, 14, 9, 32, 0),
+				randomSuffix: () => "beef",
+				createFetcher: () => fetcher,
+				createAiClient: () => ({
+					digestWebpage: vi.fn().mockImplementation(async ({markdown}: {markdown: string}) => {
+						capturedMarkdown = markdown;
+						return sampleDigest;
+					}),
+					digestPdf: vi.fn().mockResolvedValue(sampleDigest),
+				}) as unknown as AiClient,
+			},
+		});
+
+		await runner.run("https://example.com/render-shell");
+
+		expect(getBrowserRenderedHtml).toHaveBeenCalledWith("https://example.com/render-shell");
+		expect(capturedMarkdown).toContain("渲染正文");
+		const content = vault.read("我的知识库/成文/2026-04-14 0932 - AI整理 - 整理标题.md");
+		expect(content).toContain("网页正文已从桌面浏览器渲染后的 HTML 提取");
 	});
 
 	it("appends the fixed suffix when final filenames collide", async () => {
@@ -366,8 +490,10 @@ describe("job-runner", () => {
 		await makeRunner().run("https://example.com/b");
 
 		const files = vault.listFiles().map((file) => file.path).sort();
-		expect(files).toContain("Inbox/Clippings/2026-04-13 1234 - 整理标题.md");
-		expect(files).toContain("Inbox/Clippings/2026-04-13 1234 - 整理标题 - beef.md");
+		expect(files).toContain("我的知识库/成文/2026-04-13 1234 - AI整理 - 整理标题.md");
+		expect(files).toContain("我的知识库/成文/2026-04-13 1234 - AI整理 - 整理标题 - beef.md");
+		expect(files).toContain("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题.md");
+		expect(files).toContain("我的知识库/原文/2026-04-13 1234 - 原文 - 整理标题 - beef.md");
 	});
 
 	it("creates a failed note when PDF preflight detects an oversized file", async () => {
@@ -392,7 +518,7 @@ describe("job-runner", () => {
 
 		await runner.run("https://example.com/huge.pdf");
 
-		const failedPath = "Inbox/Clippings/_failed/2026-04-13 1234 - Failed - example.com - beef.md";
+		const failedPath = "我的知识库/状态/失败记录/2026-04-13 1234 - 失败 - example.com.md";
 		expect(vault.read(failedPath)).toContain("## 阶段\n\npreflight");
 	});
 
@@ -422,23 +548,20 @@ describe("job-runner", () => {
 
 		await runner.run("https://example.com/article");
 
-		const failedPath = "Inbox/Clippings/_failed/2026-04-13 1234 - Failed - example.com - beef.md";
+		const failedPath = "我的知识库/状态/失败记录/2026-04-13 1234 - 失败 - example.com.md";
 		const content = vault.read(failedPath);
 		expect(content).toContain("## 阶段\n\npreflight");
 		expect(content).toContain("i.get is not a function");
 	});
 
-	it("creates a failed note when OpenAI cannot directly download a PDF", async () => {
+	it("creates a failed note when PDF text cannot be extracted locally", async () => {
 		const {app, vault} = createFakeApp();
 		const fetcher = {
 			headUrl: vi.fn().mockResolvedValue(createResponse(200, "", {
 				"content-type": "application/pdf",
 				"content-length": "1024",
 			})),
-			postJson: vi.fn().mockResolvedValue(createResponse(
-				400,
-				JSON.stringify({error: {message: "could not download pdf (403)"}}),
-			)),
+			getBinaryUrl: vi.fn().mockResolvedValue(createResponse(200, "")),
 		} as unknown as Fetcher;
 
 		const runner = new JobRunner({
@@ -454,8 +577,8 @@ describe("job-runner", () => {
 
 		await runner.run("https://example.com/private.pdf");
 
-		const failedPath = "Inbox/Clippings/_failed/2026-04-13 1234 - Failed - private - beef.md";
-		expect(vault.read(failedPath)).toContain("OpenAI 无法直接下载此 PDF");
+		const failedPath = "我的知识库/状态/失败记录/2026-04-13 1234 - 失败 - private.md";
+		expect(vault.read(failedPath)).toContain("无法在本地从 PDF 提取可读文本。");
 	});
 
 	it.each([
@@ -514,7 +637,7 @@ describe("job-runner", () => {
 
 		await runner.run("https://example.com/article");
 
-		const failedPath = "Inbox/Clippings/_failed/2026-04-13 1234 - Failed - example.com - beef.md";
+		const failedPath = "我的知识库/状态/失败记录/2026-04-13 1234 - 失败 - example.com.md";
 		expect(vault.read(failedPath)).toContain("# 导入失败");
 	});
 });

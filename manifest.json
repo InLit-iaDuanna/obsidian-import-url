@@ -1,9 +1,9 @@
 {
 	"id": "import-url",
-	"name": "Import URL",
-	"version": "1.0.3",
+	"name": "导入 URL",
+	"version": "1.0.4",
 	"minAppVersion": "1.11.4",
-	"description": "Import a URL into a structured Obsidian note with OpenAI.",
+	"description": "将 URL/PDF 导入为原文笔记和基于 DeepSeek 风格模型接口整理的知识库笔记。",
 	"author": "isduanna",
 	"isDesktopOnly": false
 }

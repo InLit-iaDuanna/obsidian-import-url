@@ -12,6 +12,10 @@ import {
 import {AiClient} from "./pipeline/ai-client";
 import {Fetcher} from "./pipeline/fetcher";
 
+export const DEFAULT_API_SECRET_NAME = "import-url-deepseek-api-key";
+export const LEGACY_OPENAI_SECRET_NAME = "import-url-openai-api-key";
+export const DEFAULT_DEEPSEEK_API_BASE_URL = "https://api.deepseek.com";
+
 interface SecretStorageLike {
 	get?: (key: string) => Promise<string | null> | string | null;
 	getSecret?: (key: string) => Promise<string | null> | string | null;
@@ -22,16 +26,22 @@ interface SecretStorageLike {
 }
 
 export const DEFAULT_SETTINGS: ImportUrlPluginSettings = {
-	openAiSecretName: "import-url-openai-api-key",
-	apiBaseUrl: "https://api.openai.com/v1",
-	model: "gpt-4o",
+	openAiSecretName: DEFAULT_API_SECRET_NAME,
+	apiBaseUrl: DEFAULT_DEEPSEEK_API_BASE_URL,
+	model: "",
 	customModels: [],
 	modelApiBaseUrls: [],
-	configTomlPath: "Inbox/Clippings/import-url.config.toml",
-	outputFolder: "Inbox/Clippings",
-	processingFolder: "Inbox/Clippings/_processing",
-	failedFolder: "Inbox/Clippings/_failed",
-	historyFolder: "Inbox/Clippings/History",
+	configTomlPath: "我的知识库/导入URL配置.toml",
+	outputFolder: "我的知识库/成文",
+	originalFolder: "我的知识库/原文",
+	processingFolder: "我的知识库/状态/处理中",
+	failedFolder: "我的知识库/状态/失败记录",
+	historyFolder: "我的知识库/状态/历史记录",
+	wikiFolder: "我的知识库/概念库",
+	wikiSourcesFolder: "我的知识库/概念库/来源",
+	wikiCandidatesFolder: "我的知识库/概念库/待入库",
+	wikiConceptsFolder: "我的知识库/概念库/已入库",
+	wikiIndexPath: "我的知识库/概念库/索引.md",
 	defaultLanguage: "zh-CN",
 	fetchTimeoutMs: 30000,
 	aiTimeoutMs: 120000,
@@ -66,6 +76,17 @@ export async function readSecretValue(app: App, key: string): Promise<string | n
 		return maybeAwait(secretStorage.getSecret(key));
 	}
 
+	return null;
+}
+
+export async function readApiKeyValue(app: App, key: string): Promise<string | null> {
+	const candidateKeys = [key, DEFAULT_API_SECRET_NAME, LEGACY_OPENAI_SECRET_NAME];
+	for (const candidateKey of [...new Set(candidateKeys)]) {
+		const value = (await readSecretValue(app, candidateKey))?.trim();
+		if (value) {
+			return value;
+		}
+	}
 	return null;
 }
 
@@ -122,12 +143,14 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName("Connection")
+			.setName("模型接口")
 			.setHeading();
 
+		this.buildEffectiveSettingsSummary(containerEl);
+
 		new Setting(containerEl)
-			.setName("Secret key name")
-			.setDesc("Key name used to read and write the API key in Obsidian secret storage.")
+			.setName("密钥存储名称")
+			.setDesc("用于在 Obsidian 安全存储中读写模型 API 密钥的名称。通常保持默认即可。")
 			.addText((text) => {
 				text.setPlaceholder(DEFAULT_SETTINGS.openAiSecretName)
 					.setValue(this.plugin.settings.openAiSecretName)
@@ -143,32 +166,38 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 		this.buildConnectionTestSetting(containerEl);
 
 		new Setting(containerEl)
-			.setName("Models")
+			.setName("模型")
 			.setHeading();
 		this.buildModelSettings(containerEl);
 
 		new Setting(containerEl)
-			.setName("Output")
+			.setName("输出")
 			.setHeading();
-		this.buildTextSetting(containerEl, "outputFolder", "Output folder", "Folder for completed notes.");
-		this.buildTextSetting(containerEl, "processingFolder", "Processing folder", "Folder for temporary processing notes.");
-		this.buildTextSetting(containerEl, "failedFolder", "Failed folder", "Folder for failed import notes.");
-		this.buildTextSetting(containerEl, "historyFolder", "History folder", "Folder for visible import history notes.");
-		this.buildTextSetting(containerEl, "defaultLanguage", "Default language", "Language value stored in generated frontmatter.");
-		this.buildNumberSetting(containerEl, "fetchTimeoutMs", "Fetch timeout (ms)", "Logical timeout for webpage fetching.");
-		this.buildNumberSetting(containerEl, "aiTimeoutMs", "AI timeout (ms)", "Logical timeout for model requests.");
-		this.buildNumberSetting(containerEl, "maxContentTokens", "Max content tokens", "Estimated max tokens sent to the model before truncation.");
+		this.buildTextSetting(containerEl, "outputFolder", "AI 整理目录", "模型整理后的成文笔记目录。");
+		this.buildTextSetting(containerEl, "originalFolder", "原文目录", "抓取到的原文 Markdown 单独保存到这里。");
+		this.buildTextSetting(containerEl, "processingFolder", "处理中目录", "导入过程中的临时笔记目录。");
+		this.buildTextSetting(containerEl, "failedFolder", "失败记录目录", "导入失败时写入诊断笔记的目录。");
+		this.buildTextSetting(containerEl, "historyFolder", "历史记录目录", "可见导入历史记录笔记的目录。");
+		this.buildTextSetting(containerEl, "wikiFolder", "知识库根目录", "生成知识库文件的根目录。");
+		this.buildTextSetting(containerEl, "wikiSourcesFolder", "来源记录目录", "每次导入的来源记录目录。");
+		this.buildTextSetting(containerEl, "wikiCandidatesFolder", "待入库目录", "待审核概念页目录。");
+		this.buildTextSetting(containerEl, "wikiConceptsFolder", "已入库目录", "批准后的正式概念页目录。");
+		this.buildTextSetting(containerEl, "wikiIndexPath", "知识库索引路径", "自动生成的知识库索引笔记路径。");
+		this.buildTextSetting(containerEl, "defaultLanguage", "默认语言", "写入生成笔记 frontmatter 的语言值。");
+		this.buildNumberSetting(containerEl, "fetchTimeoutMs", "抓取超时（毫秒）", "网页或 PDF 抓取的逻辑超时时间。");
+		this.buildNumberSetting(containerEl, "aiTimeoutMs", "模型超时（毫秒）", "模型接口请求的逻辑超时时间。");
+		this.buildNumberSetting(containerEl, "maxContentTokens", "最大内容 token", "发送给模型前保留的估算最大 token 数。");
 
 		new Setting(containerEl)
-			.setName("Fallbacks")
+			.setName("抓取兜底")
 			.setHeading();
 		this.buildSiteJsonFallbackSetting(containerEl);
 		this.buildReaderFallbackSetting(containerEl);
 		this.buildBrowserRenderFallbackSetting(containerEl);
 
 		new Setting(containerEl)
-			.setName("Open created note")
-			.setDesc("Open the final note automatically after a successful import.")
+			.setName("自动打开新笔记")
+			.setDesc("导入成功后自动打开最终生成的笔记。")
 			.addToggle((toggle) => {
 				toggle.setValue(this.plugin.settings.openNoteAfterCreate)
 					.onChange(async (value) => {
@@ -180,8 +209,8 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 	private buildReaderFallbackSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("Reader fallback")
-			.setDesc("If direct fetch fails, try r.jina.ai reader mode. This sends the source URL to a third-party service. Off by default.")
+			.setName("阅读模式兜底")
+			.setDesc("直接抓取失败或只抓到脚本壳时尝试 r.jina.ai 阅读模式。它会把来源 URL 发送给第三方服务，默认关闭。")
 			.addToggle((toggle) => {
 				toggle.setValue(this.plugin.settings.readerFallbackEnabled)
 					.onChange(async (value) => {
@@ -193,8 +222,8 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 	private buildSiteJsonFallbackSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("Site JSON fallback")
-			.setDesc("Prefer site-specific JSON endpoints on supported pages, such as Discourse topic `.json` routes. On by default.")
+			.setName("站点 JSON 兜底")
+			.setDesc("对支持的页面优先尝试站点 JSON 接口，例如 Discourse 主题的 `.json` 路由，默认开启。")
 			.addToggle((toggle) => {
 				toggle.setValue(this.plugin.settings.siteJsonFallbackEnabled)
 					.onChange(async (value) => {
@@ -206,8 +235,8 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 	private buildBrowserRenderFallbackSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("Browser render fallback (experimental)")
-			.setDesc("If other methods fail, try desktop browser rendering. This is desktop-only and currently macOS-only. Off by default.")
+			.setName("浏览器渲染兜底（实验）")
+			.setDesc("其他方式失败时尝试桌面浏览器渲染。此功能仅桌面端可用，目前仅支持 macOS，默认关闭。")
 			.addToggle((toggle) => {
 				toggle.setValue(this.plugin.settings.browserRenderFallbackEnabled)
 					.onChange(async (value) => {
@@ -218,34 +247,29 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 	}
 
 	private buildModelSettings(containerEl: HTMLElement): void {
-		const modelOptions = getModelOptions(this.plugin.settings);
+		const modelPlaceholder = "deepseek-v4-pro";
 
 		new Setting(containerEl)
-			.setName("Default model")
-			.setDesc("Default model for new imports. You can still switch per import from the modal.")
-			.addDropdown((dropdown) => {
-				for (const option of modelOptions) {
-					dropdown.addOption(option.id, option.label);
-				}
-
-				dropdown.setValue(this.plugin.settings.model)
+			.setName("默认模型")
+			.setDesc("新导入默认使用的模型 ID。可以填写账号可用模型，也可以在导入弹窗中临时选择。")
+			.addText((text) => {
+				text.setPlaceholder(modelPlaceholder)
+					.setValue(this.plugin.settings.model)
 					.onChange(async (value) => {
-						this.plugin.settings.model = value;
-						await this.plugin.saveSettings();
-						this.display();
+						await this.plugin.persistModelSelection(value.trim());
 					});
 			});
 
 		new Setting(containerEl)
-			.setName("Custom models")
-			.setDesc("Extra model entries, one per line. These appear in both settings and the import modal.")
+			.setName("自定义模型")
+			.setDesc("额外模型列表，每行一个。它们会出现在设置页和导入弹窗中。")
 			.addTextArea((textArea) => {
-				textArea.setPlaceholder("Enter one model name per line.")
+				textArea.setPlaceholder("每行填写一个模型 ID。")
 					.setValue(formatCustomModelsInput(this.plugin.settings.customModels))
 					.onChange(async (value) => {
 						this.plugin.settings.customModels = parseCustomModelsInput(value);
 						const availableModels = getModelOptions(this.plugin.settings).map((option) => option.id);
-						if (!availableModels.includes(this.plugin.settings.model)) {
+						if (this.plugin.settings.model && !availableModels.includes(this.plugin.settings.model)) {
 							this.plugin.settings.model = availableModels[0] ?? DEFAULT_SETTINGS.model;
 						}
 						await this.plugin.saveSettings();
@@ -255,10 +279,10 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName("Model-specific API addresses")
-			.setDesc("Set a custom API base URL per model. One per line: model-id | https://example.com/v1")
+			.setName("按模型配置 API 地址")
+			.setDesc("为不同模型设置不同 API base URL，每行一个：model-id | https://example.com")
 			.addTextArea((textArea) => {
-				textArea.setPlaceholder("gpt-5.4 | https://api.example.com/v1\nclaude-sonnet-4 | https://example.com/v1")
+				textArea.setPlaceholder("deepseek-v4-pro | https://api.deepseek.com\ndeepseek-v4-flash | https://api.deepseek.com")
 					.setValue(formatModelApiBaseUrlsInput(this.plugin.settings.modelApiBaseUrls))
 					.onChange(async (value) => {
 						this.plugin.settings.modelApiBaseUrls = parseModelApiBaseUrlsInput(value);
@@ -269,58 +293,113 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 			});
 	}
 
+	private buildEffectiveSettingsSummary(containerEl: HTMLElement): void {
+		const setting = new Setting(containerEl)
+			.setName("当前生效配置")
+			.setDesc("正在读取 config.toml 覆盖项...");
+
+		setting
+			.addButton((button) => {
+				button.setButtonText("刷新")
+					.onClick(() => {
+						this.display();
+					});
+			})
+			.addButton((button) => {
+				button.setButtonText("打开配置")
+					.onClick(() => {
+						void this.plugin.openConfigToml();
+					});
+			});
+
+		void this.renderEffectiveSettingsSummary(setting);
+	}
+
+	private async renderEffectiveSettingsSummary(setting: Setting): Promise<void> {
+		try {
+			const effectiveSettings = await this.plugin.getEffectiveSettings();
+			const model = effectiveSettings.model.trim();
+			const apiBaseUrl = resolveModelApiBaseUrl(effectiveSettings, model) || effectiveSettings.apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl;
+			const savedModel = this.plugin.settings.model.trim();
+			const savedApiBaseUrl = resolveModelApiBaseUrl(this.plugin.settings, savedModel) || this.plugin.settings.apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl;
+			const isRuntimeOverridden = model !== savedModel || apiBaseUrl !== savedApiBaseUrl;
+			const sourceHint = isRuntimeOverridden
+				? "config.toml 已覆盖设置页中的运行时配置。"
+				: "当前使用设置页保存的运行时配置。";
+
+			setting.setDesc(this.buildDescriptionFragment([
+				`当前模型：${model || "未设置"}`,
+				`当前 API 地址：${apiBaseUrl || "未设置"}`,
+				`${sourceHint} 如果导入行为和设置页不同，请检查配置文件。`,
+			]));
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			setting.setDesc(`读取当前生效配置失败：${message}`);
+		}
+	}
+
+	private buildDescriptionFragment(lines: string[]): DocumentFragment {
+		const fragment = document.createDocumentFragment();
+		for (const line of lines) {
+			const lineEl = document.createElement("div");
+			lineEl.textContent = line;
+			fragment.appendChild(lineEl);
+		}
+		return fragment;
+	}
+
 	private buildApiKeySetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("API key")
-			.setDesc("Stored in Obsidian secret storage. Some mobile devices may prompt for biometric or system authentication.")
+			.setName("API 密钥")
+			.setDesc("保存在 Obsidian 安全存储中。部分移动设备可能会要求生物识别或系统认证。")
 			.addText((text) => {
-				text.setPlaceholder("Example: sk-...")
+				text.setPlaceholder("例如：sk-...")
 					.onChange((value) => {
 						this.secretDraft = value.trim();
 					});
 				text.inputEl.type = "password";
 			})
-				.addButton((button) => {
-					button.setButtonText("Save")
-						.setCta()
-						.onClick(async () => {
-							if (!this.secretDraft) {
-								new Notice("Enter an API key first.", 4000);
-								return;
-							}
+			.addButton((button) => {
+				button.setButtonText("保存")
+					.setCta()
+					.onClick(async () => {
+						if (!this.secretDraft) {
+							new Notice("请先输入 API 密钥。", 4000);
+							return;
+						}
 
-							const saved = await writeSecretValue(this.app, this.plugin.settings.openAiSecretName, this.secretDraft);
-							if (!saved) {
-								new Notice("Secret storage is not writable in this environment.", 5000);
-								return;
-							}
+						const saved = await writeSecretValue(this.app, this.plugin.settings.openAiSecretName, this.secretDraft);
+						if (!saved) {
+							new Notice("当前环境无法写入 Obsidian 安全存储。", 5000);
+							return;
+						}
 
-							this.secretDraft = "";
-							new Notice("API key saved.", 3000);
-							this.display();
-						});
-				})
+						this.secretDraft = "";
+						new Notice("API 密钥已保存。", 3000);
+						this.display();
+					});
+			})
 			.addExtraButton((button) => {
 				button.setIcon("cross")
-						.setTooltip("Clear API key")
-						.onClick(async () => {
-							const removed = await removeSecretValue(this.app, this.plugin.settings.openAiSecretName);
-							if (!removed) {
-								new Notice("Secret storage is not writable in this environment.", 5000);
-								return;
-							}
+					.setTooltip("清除 API 密钥")
+					.onClick(async () => {
+						const removed = await removeSecretValue(this.app, this.plugin.settings.openAiSecretName);
+						if (!removed) {
+							new Notice("当前环境无法写入 Obsidian 安全存储。", 5000);
+							return;
+						}
 
-							this.secretDraft = "";
-							new Notice("API key cleared.", 3000);
-							this.display();
-						});
-				});
+						this.secretDraft = "";
+						new Notice("API 密钥已清除。", 3000);
+						this.display();
+					});
+			});
 	}
 
 	private buildApiBaseUrlSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("Default API base URL")
-			.setDesc("Set a compatible API base URL. Responses is tried first, then chat completions is used as an automatic fallback.")
+			.setName("模型 API 地址")
+			.setDesc("设置模型接口的 API base URL。DeepSeek 使用 https://api.deepseek.com。")
 			.addText((text) => {
 				text.setPlaceholder(DEFAULT_SETTINGS.apiBaseUrl)
 					.setValue(this.plugin.settings.apiBaseUrl)
@@ -329,22 +408,22 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 					});
 			})
 			.addButton((button) => {
-				button.setButtonText("Save")
+				button.setButtonText("保存")
 					.setCta()
-						.onClick(async () => {
-							const nextValue = this.apiBaseUrlDraft || this.plugin.settings.apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl;
-							this.plugin.settings.apiBaseUrl = nextValue;
-							await this.plugin.saveSettings();
-							new Notice(`API base URL saved: ${nextValue}`, 3500);
-							this.display();
-						});
-				});
+					.onClick(async () => {
+						const nextValue = this.apiBaseUrlDraft || this.plugin.settings.apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl;
+						this.plugin.settings.apiBaseUrl = nextValue;
+						await this.plugin.saveSettings();
+						new Notice(`模型 API 地址已保存：${nextValue}`, 3500);
+						this.display();
+					});
+			});
 	}
 
 	private buildConfigTomlSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("Config file path")
-			.setDesc("Path to a visible `config.toml` file in your vault. Runtime imports read this file first and apply model and API URL overrides.")
+			.setName("配置文件路径")
+			.setDesc("Vault 内可见的 `config.toml` 路径。导入运行时会优先读取该文件，并应用模型和 API 地址覆盖。")
 			.addText((text) => {
 				text.setPlaceholder(DEFAULT_SETTINGS.configTomlPath)
 					.setValue(this.plugin.settings.configTomlPath)
@@ -355,7 +434,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 					});
 			})
 			.addButton((button) => {
-				button.setButtonText("Open")
+				button.setButtonText("打开")
 					.onClick(() => {
 						void this.plugin.openConfigToml();
 					});
@@ -364,22 +443,26 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 	private buildConnectionTestSetting(containerEl: HTMLElement): void {
 		new Setting(containerEl)
-			.setName("Test connection")
-			.setDesc("Test the currently effective model and API URL. If `config.toml` overrides are present, they are applied before testing.")
+			.setName("测试连接")
+			.setDesc("测试当前实际生效的模型和 API 地址。若 `config.toml` 中存在覆盖项，会先应用覆盖项。")
 			.addButton((button) => {
-				button.setButtonText("Test")
+				button.setButtonText("测试")
 					.setCta()
 					.onClick(async () => {
 						button.setDisabled(true);
-						button.setButtonText("Testing...");
+						button.setButtonText("测试中...");
 
 						try {
 							const effectiveSettings = await this.plugin.getEffectiveSettings();
 							const model = effectiveSettings.model;
+							if (!model.trim()) {
+								new Notice("请先填写模型 ID，再测试连接。", 4000);
+								return;
+							}
 							const resolvedApiBaseUrl = resolveModelApiBaseUrl(effectiveSettings, model) || DEFAULT_SETTINGS.apiBaseUrl;
-							const apiKey = (await readSecretValue(this.app, this.plugin.settings.openAiSecretName))?.trim();
+							const apiKey = (await readApiKeyValue(this.app, this.plugin.settings.openAiSecretName))?.trim();
 							if (!apiKey) {
-								new Notice("Save an API key before running a connection test.", 4000);
+								new Notice("请先保存 API 密钥，再测试连接。", 4000);
 								return;
 							}
 
@@ -390,13 +473,13 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 								apiBaseUrl: resolvedApiBaseUrl,
 							}, apiKey);
 							const result = await client.testConnection();
-							new Notice(`Connection successful: ${model} @ ${result.requestUrl}`, 5000);
+							new Notice(`连接成功：${model} @ ${result.requestUrl}`, 5000);
 						} catch (error) {
 							const message = error instanceof Error ? error.message : String(error);
-							new Notice(`Connection failed: ${message}`, 7000);
+							new Notice(`连接失败：${message}`, 7000);
 						} finally {
 							button.setDisabled(false);
-							button.setButtonText("Test");
+							button.setButtonText("测试");
 						}
 					});
 			});
@@ -404,7 +487,7 @@ export class ImportUrlSettingTab extends PluginSettingTab {
 
 	private buildTextSetting(
 		containerEl: HTMLElement,
-		key: "outputFolder" | "processingFolder" | "failedFolder" | "historyFolder" | "defaultLanguage",
+		key: "outputFolder" | "originalFolder" | "processingFolder" | "failedFolder" | "historyFolder" | "wikiFolder" | "wikiSourcesFolder" | "wikiCandidatesFolder" | "wikiConceptsFolder" | "wikiIndexPath" | "defaultLanguage",
 		name: string,
 		description: string,
 	): void {

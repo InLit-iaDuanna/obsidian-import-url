@@ -10,6 +10,7 @@ export interface FrontmatterInput {
 	model: string;
 	language: string;
 	tags: string[];
+	graphGroup?: string;
 }
 
 function quoteYaml(value: string): string {
@@ -27,6 +28,7 @@ export function renderFrontmatter(input: FrontmatterInput): string {
 		`clipped_at: ${quoteYaml(input.clippedAt)}`,
 		`model: ${quoteYaml(input.model)}`,
 		`language: ${quoteYaml(input.language)}`,
+		`graph_group: ${quoteYaml(input.graphGroup ?? "import-url-generated")}`,
 	];
 
 	if (input.tags.length === 0) {

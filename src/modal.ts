@@ -9,6 +9,8 @@ interface ImportUrlModalOptions {
 	recentImports: ImportHistoryEntry[];
 	resolveApiBaseUrl: (model: string) => string;
 	openVaultPath: (path: string) => Promise<boolean>;
+	onModelChange: (model: string) => Promise<void>;
+	onClearRecentImports: () => Promise<boolean>;
 	onSubmit: (rawUrl: string, model: string) => Promise<void>;
 }
 
@@ -17,6 +19,7 @@ export class ImportUrlModal extends Modal {
 	private input!: TextComponent;
 	private submitButton!: ButtonComponent;
 	private selectedModel: string;
+	private recentImports: ImportHistoryEntry[];
 	private modelListEl!: HTMLElement;
 	private historyEl!: HTMLElement;
 	private summaryEl!: HTMLElement;
@@ -26,6 +29,7 @@ export class ImportUrlModal extends Modal {
 		super(app);
 		this.options = options;
 		this.selectedModel = options.initialModel;
+		this.recentImports = options.recentImports;
 	}
 
 	onOpen(): void {
@@ -34,9 +38,9 @@ export class ImportUrlModal extends Modal {
 		contentEl.addClass("import-url-modal");
 
 		const heroEl = contentEl.createDiv({cls: "import-url-hero"});
-		heroEl.createEl("h2", {text: "Import from URL"});
+		heroEl.createEl("h2", {text: "从 URL 导入"});
 		heroEl.createEl("p", {
-			text: "Paste a public webpage or direct PDF URL, choose a model, and continue from recent import history.",
+			text: "粘贴公开网页或直连 PDF URL，选择模型后生成原文笔记、AI 整理笔记和知识库概念候选页。",
 			cls: "import-url-copy",
 		});
 
@@ -57,12 +61,12 @@ export class ImportUrlModal extends Modal {
 
 		const toolbarEl = contentEl.createDiv({cls: "import-url-toolbar"});
 		new ButtonComponent(toolbarEl)
-			.setButtonText("Paste")
+			.setButtonText("粘贴")
 			.onClick(() => {
 				void this.pasteClipboard();
 			});
 		new ButtonComponent(toolbarEl)
-			.setButtonText("Clear")
+			.setButtonText("清空")
 			.onClick(() => {
 				this.input.setValue("");
 				this.updateSummary("");
@@ -72,31 +76,40 @@ export class ImportUrlModal extends Modal {
 		this.summaryActionsEl = contentEl.createDiv({cls: "import-url-summary-actions"});
 
 		const modelSectionEl = contentEl.createDiv({cls: "import-url-section"});
-		modelSectionEl.createEl("h3", {text: "Model"});
+		modelSectionEl.createEl("h3", {text: "模型"});
 		modelSectionEl.createEl("p", {
-			text: "Pick a model for this import. Your last choice is remembered.",
+			text: "为这次导入选择模型。模型 ID 也可以保存在设置页或 config.toml 中。",
 			cls: "import-url-section-copy",
 		});
 		this.modelListEl = modelSectionEl.createDiv({cls: "import-url-model-list"});
 
 		const historySectionEl = contentEl.createDiv({cls: "import-url-section"});
-		historySectionEl.createEl("h3", {text: "Recent imports"});
+		const historyHeaderEl = historySectionEl.createDiv({cls: "import-url-section-header"});
+		historyHeaderEl.createEl("h3", {text: "最近导入"});
+		const clearHistoryButtonEl = historyHeaderEl.createEl("button", {
+			text: "清空列表",
+			cls: "import-url-link-button",
+		});
+		clearHistoryButtonEl.type = "button";
+		clearHistoryButtonEl.addEventListener("click", () => {
+			void this.clearRecentImports();
+		});
 		historySectionEl.createEl("p", {
-			text: "Sorted by time. Fill the URL back into input or run the same import again.",
+			text: "按时间排序。可以回填 URL，也可以用同一模型重新导入。",
 			cls: "import-url-section-copy",
 		});
 		this.historyEl = historySectionEl.createDiv({cls: "import-url-history"});
 
 		const actionsEl = contentEl.createDiv({cls: "import-url-actions"});
 		this.submitButton = new ButtonComponent(actionsEl)
-			.setButtonText("Import")
+			.setButtonText("导入")
 			.setCta();
 		this.submitButton.onClick(() => {
 			this.handleSubmit();
 		});
 
 		new ButtonComponent(actionsEl)
-			.setButtonText("Cancel")
+			.setButtonText("取消")
 			.onClick(() => this.close());
 
 		this.renderModelOptions();
@@ -129,20 +142,18 @@ export class ImportUrlModal extends Modal {
 			buttonEl.setAttr("aria-pressed", option.id === this.selectedModel);
 			buttonEl.title = option.description;
 			buttonEl.addEventListener("click", () => {
-				this.selectedModel = option.id;
-				this.renderModelOptions();
-				this.updateSummary(this.input.getValue());
+				this.selectModel(option.id);
 			});
 		}
 	}
 
 	private renderHistory(): void {
 		this.historyEl.empty();
-		const groups = groupRecentImports(this.options.recentImports);
+		const groups = groupRecentImports(this.recentImports);
 		if (groups.length === 0) {
 			this.historyEl.createDiv({
 				cls: "import-url-empty",
-				text: "No import history yet. Submitted URLs will appear here.",
+				text: "还没有导入历史。提交过的 URL 会显示在这里。",
 			});
 			return;
 		}
@@ -197,10 +208,32 @@ export class ImportUrlModal extends Modal {
 				}
 
 				const actionRowEl = itemEl.createDiv({cls: "import-url-history-actions"});
+				const fillButton = actionRowEl.createEl("button", {
+					text: "填入 URL",
+					cls: "mod-cta",
+				});
+				fillButton.type = "button";
+				fillButton.addEventListener("click", () => {
+					this.input.setValue(entry.url);
+					this.selectModel(entry.model, {showUnavailableNotice: true});
+					this.updateSummary(entry.url);
+				});
+
+				const rerunButton = actionRowEl.createEl("button", {
+					text: "重新导入",
+				});
+				rerunButton.type = "button";
+				rerunButton.addEventListener("click", () => {
+					this.input.setValue(entry.url);
+					this.selectModel(entry.model, {showUnavailableNotice: true});
+					this.updateSummary(entry.url);
+					this.handleSubmit();
+				});
+
 				if (entry.notePath) {
 					const notePath = entry.notePath;
 					const openNoteButton = actionRowEl.createEl("button", {
-						text: "Open note",
+						text: "打开 AI 整理",
 					});
 					openNoteButton.type = "button";
 					openNoteButton.addEventListener("click", () => {
@@ -208,52 +241,39 @@ export class ImportUrlModal extends Modal {
 					});
 				}
 
+				if (entry.originalNotePath) {
+					const originalNotePath = entry.originalNotePath;
+					const openOriginalButton = actionRowEl.createEl("button", {
+						text: "打开原文",
+					});
+					openOriginalButton.type = "button";
+					openOriginalButton.addEventListener("click", () => {
+						void this.openPath(originalNotePath);
+					});
+				}
+
 				if (entry.historyNotePath) {
 					const historyNotePath = entry.historyNotePath;
 					const openRecordButton = actionRowEl.createEl("button", {
-						text: "Open record",
+						text: "打开记录",
 					});
 					openRecordButton.type = "button";
 					openRecordButton.addEventListener("click", () => {
 						void this.openPath(historyNotePath);
 					});
 				}
-
-				const fillButton = actionRowEl.createEl("button", {
-					text: "Fill URL",
-					cls: "mod-cta",
-				});
-				fillButton.type = "button";
-				fillButton.addEventListener("click", () => {
-					this.input.setValue(entry.url);
-					this.selectedModel = entry.model;
-					this.renderModelOptions();
-					this.updateSummary(entry.url);
-				});
-
-				const rerunButton = actionRowEl.createEl("button", {
-					text: "Re-import",
-				});
-				rerunButton.type = "button";
-				rerunButton.addEventListener("click", () => {
-					this.input.setValue(entry.url);
-					this.selectedModel = entry.model;
-					this.renderModelOptions();
-					this.updateSummary(entry.url);
-					this.handleSubmit();
-				});
 			}
 		}
 	}
 
 	private getStatusLabel(entry: ImportHistoryEntry): string {
 		if (entry.status === "complete") {
-			return "Complete";
+			return "已完成";
 		}
 		if (entry.status === "failed") {
-			return "Failed";
+			return "失败";
 		}
-		return "Processing";
+		return "处理中";
 	}
 
 	private formatTimestamp(timestamp: string): string {
@@ -269,36 +289,55 @@ export class ImportUrlModal extends Modal {
 		this.summaryEl.empty();
 		this.summaryActionsEl.empty();
 		const trimmed = rawUrl.trim();
-		const modelText = this.options.modelOptions.find((option) => option.id === this.selectedModel)?.label ?? this.selectedModel;
+		const modelText = this.options.modelOptions.find((option) => option.id === this.selectedModel)?.label ?? (this.selectedModel || "未选择模型");
 		const apiBaseUrl = this.options.resolveApiBaseUrl(this.selectedModel);
-		const apiText = apiBaseUrl || "No API URL configured";
+		const apiText = apiBaseUrl || "未配置 API URL";
+		const gridEl = this.summaryEl.createDiv({cls: "import-url-summary-grid"});
 
 		if (!trimmed) {
-			this.summaryEl.setText(`Model: ${modelText} · API URL: ${apiText}. Supports public webpages and direct PDF URLs.`);
+			this.createSummaryField(gridEl, "来源", "等待粘贴 URL");
+			this.createSummaryField(gridEl, "类型", "网页 / PDF");
+			this.createSummaryField(gridEl, "模型", modelText);
+			this.createSummaryField(gridEl, "API", apiText);
 			return;
 		}
 
 		try {
 			const url = new URL(trimmed);
 			const looksLikePdf = url.pathname.toLowerCase().endsWith(".pdf");
-			const latestMatch = findLatestImportForUrl(this.options.recentImports, trimmed);
-			const latestSummary = latestMatch
-				? ` · Latest: ${this.getStatusLabel(latestMatch)} · ${this.formatTimestamp(latestMatch.submittedAt)} · ${latestMatch.model}`
-				: "";
-			this.summaryEl.setText(`Source: ${url.host} · Type: ${looksLikePdf ? "PDF" : "Webpage"} · Model: ${modelText} · API URL: ${apiText}${latestSummary}`);
+			const latestMatch = findLatestImportForUrl(this.recentImports, trimmed);
+			this.createSummaryField(gridEl, "来源", url.host);
+			this.createSummaryField(gridEl, "类型", looksLikePdf ? "PDF" : "网页");
+			this.createSummaryField(gridEl, "模型", modelText);
+			this.createSummaryField(gridEl, "API", apiText);
 			if (latestMatch) {
+				this.createSummaryField(
+					gridEl,
+					"最近",
+					`${this.getStatusLabel(latestMatch)} · ${this.formatTimestamp(latestMatch.submittedAt)} · ${latestMatch.model}`,
+					"is-wide",
+				);
 				this.renderSummaryActions(latestMatch);
 			}
 		} catch {
-			this.summaryEl.setText(`URL format is incomplete. You can keep pasting. Model: ${modelText} · API URL: ${apiText}`);
+			this.createSummaryField(gridEl, "来源", "URL 格式未完成");
+			this.createSummaryField(gridEl, "类型", "等待识别");
+			this.createSummaryField(gridEl, "模型", modelText);
+			this.createSummaryField(gridEl, "API", apiText);
 		}
+	}
+
+	private createSummaryField(parentEl: HTMLElement, label: string, value: string, className = ""): void {
+		const fieldEl = parentEl.createDiv({cls: `import-url-summary-field ${className}`.trim()});
+		fieldEl.createEl("span", {cls: "import-url-summary-label", text: label});
+		fieldEl.createEl("strong", {text: value});
 	}
 
 	private renderSummaryActions(entry: ImportHistoryEntry): void {
 		if (entry.notePath) {
 			const notePath = entry.notePath;
 			const buttonEl = this.summaryActionsEl.createEl("button", {
-				text: "Open latest note",
+				text: "打开最近 AI 整理",
 			});
 			buttonEl.type = "button";
 			buttonEl.addEventListener("click", () => {
@@ -306,10 +345,21 @@ export class ImportUrlModal extends Modal {
 			});
 		}
 
+		if (entry.originalNotePath) {
+			const originalNotePath = entry.originalNotePath;
+			const buttonEl = this.summaryActionsEl.createEl("button", {
+				text: "打开最近原文",
+			});
+			buttonEl.type = "button";
+			buttonEl.addEventListener("click", () => {
+				void this.openPath(originalNotePath);
+			});
+		}
+
 		if (entry.historyNotePath) {
 			const historyNotePath = entry.historyNotePath;
 			const buttonEl = this.summaryActionsEl.createEl("button", {
-				text: "Open latest record",
+				text: "打开最近记录",
 			});
 			buttonEl.type = "button";
 			buttonEl.addEventListener("click", () => {
@@ -317,17 +367,33 @@ export class ImportUrlModal extends Modal {
 			});
 		}
 
-		if (entry.model !== this.selectedModel) {
+		if (entry.model !== this.selectedModel && this.hasSelectableModel(entry.model)) {
 			const buttonEl = this.summaryActionsEl.createEl("button", {
-				text: `Switch to ${entry.model}`,
+				text: `切换到 ${entry.model}`,
 			});
 			buttonEl.type = "button";
 			buttonEl.addEventListener("click", () => {
-				this.selectedModel = entry.model;
-				this.renderModelOptions();
-				this.updateSummary(this.input.getValue());
+				this.selectModel(entry.model);
 			});
 		}
+	}
+
+	private hasSelectableModel(model: string): boolean {
+		return this.options.modelOptions.some((option) => option.id === model);
+	}
+
+	private selectModel(model: string, options: {showUnavailableNotice?: boolean} = {}): void {
+		if (!this.hasSelectableModel(model)) {
+			if (options.showUnavailableNotice) {
+				new Notice("这条历史记录使用的旧模型不在当前模型列表中，已保留当前选择。", 4000);
+			}
+			return;
+		}
+
+		this.selectedModel = model;
+		this.renderModelOptions();
+		this.updateSummary(this.input.getValue());
+		void this.options.onModelChange(model);
 	}
 
 	private async openPath(path: string): Promise<void> {
@@ -341,26 +407,51 @@ export class ImportUrlModal extends Modal {
 		try {
 			const clipboardText = await navigator.clipboard?.readText?.();
 			if (!clipboardText?.trim()) {
-				new Notice("No URL found in clipboard.", 3000);
+				new Notice("剪贴板中没有 URL。", 3000);
 				return;
 			}
 
 			this.input.setValue(clipboardText.trim());
 			this.updateSummary(clipboardText.trim());
 		} catch {
-			new Notice("Could not read clipboard. Paste manually.", 4000);
+			new Notice("无法读取剪贴板，请手动粘贴。", 4000);
 		}
+	}
+
+	private async clearRecentImports(): Promise<void> {
+		if (this.options.isBusy()) {
+			new Notice("有导入任务正在运行，完成后再清空最近导入。", 4000);
+			return;
+		}
+
+		if (this.recentImports.length === 0) {
+			new Notice("最近导入列表已经是空的。", 2500);
+			return;
+		}
+
+		const cleared = await this.options.onClearRecentImports();
+		if (!cleared) {
+			return;
+		}
+
+		this.recentImports = [];
+		this.renderHistory();
+		this.updateSummary(this.input.getValue());
 	}
 
 	private handleSubmit(): void {
 		if (this.options.isBusy()) {
-			new Notice("Another import is already running. Please wait.", 4000);
+			new Notice("已有导入任务正在运行，请稍后。", 4000);
 			return;
 		}
 
 		const rawUrl = this.input.getValue().trim();
 		if (!rawUrl) {
-			new Notice("Enter a URL first.", 3000);
+			new Notice("请先输入 URL。", 3000);
+			return;
+		}
+		if (!this.selectedModel.trim()) {
+			new Notice("请先选择模型 ID。", 3000);
 			return;
 		}
 

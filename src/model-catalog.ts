@@ -1,18 +1,8 @@
 import {ImportUrlPluginSettings, ModelApiBaseUrlRule, ModelOption} from "./types";
 
 const BUILTIN_MODEL_OPTIONS: ModelOption[] = [
-	{id: "gpt-5.1", label: "GPT-5.1", description: "当前旗舰，适合复杂整理任务。"},
-	{id: "gpt-5", label: "GPT-5", description: "上一代旗舰，推理和长任务表现稳。"},
-	{id: "gpt-5-mini", label: "GPT-5 mini", description: "速度和成本更平衡，适合日常导入。"},
-	{id: "gpt-5-nano", label: "GPT-5 nano", description: "超低成本，适合轻量摘要。"},
-	{id: "gpt-4.1", label: "GPT-4.1", description: "稳定的长上下文非推理模型。"},
-	{id: "gpt-4.1-mini", label: "GPT-4.1 mini", description: "更便宜的 GPT-4.1 选择。"},
-	{id: "gpt-4.1-nano", label: "GPT-4.1 nano", description: "快速便宜，适合大量试跑。"},
-	{id: "gpt-4o", label: "GPT-4o", description: "通用稳妥的多模态模型。"},
-	{id: "gpt-4o-mini", label: "GPT-4o mini", description: "便宜且足够通用。"},
-	{id: "o3", label: "o3", description: "更强推理，适合难内容整理。"},
-	{id: "o3-mini", label: "o3-mini", description: "轻量推理，支持 Structured Outputs。"},
-	{id: "o4-mini", label: "o4-mini", description: "成本友好的推理模型。"},
+	{id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", description: "质量优先，适合知识库编译、概念抽取和长文整理。"},
+	{id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", description: "速度和成本优先，适合大量 URL 导入。"},
 ];
 
 function cleanModelId(modelId: string): string {

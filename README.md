@@ -2,16 +2,21 @@
 
 [中文说明](./README.zh-CN.md)
 
-Import URL is an Obsidian community plugin that imports a public web page or direct PDF URL into your vault and turns it into a structured Markdown note with OpenAI.
+Import URL is an Obsidian community plugin that imports a public web page or direct PDF URL into your vault, saves the original Markdown, and creates linked knowledge-base notes with a DeepSeek-style model API.
 
 ## What it does
 
 - Import public article pages and direct PDF links
-- Extract readable content and generate structured Markdown notes
+- Extract readable content and generate a separate original-content note
+- Generate an AI structured Markdown note
+- Generate knowledge-base source records and reviewable concept candidates; pending candidates do not create graph links by default
+- Approve or reject candidates in a knowledge-base manager, and choose whether approved concepts appear in plugin-generated graph links
+- Sort concepts by initial letter, import time, or link count, with link counts shown in the manager
+- Rebuild graph links conservatively so only approved concept pages link to genuinely related approved concepts
 - Let you choose a model before each import
 - Keep visible import history inside your vault
 - Show latest match for the current URL and let you jump back to recent result/history notes
-- Support per-model API base URLs for OpenAI-compatible endpoints
+- Support per-model API base URLs for model endpoints
 - Stay local-first, with optional third-party fallback fetch methods clearly exposed in settings
 
 ## Installation
@@ -28,18 +33,62 @@ Build the plugin, then copy these files into:
 
 Reload Obsidian, then enable **Settings → Community plugins → Import URL**.
 
+## Default folders
+
+By default, the plugin writes only under `我的知识库`:
+
+- `我的知识库/成文`: model-organized structured notes.
+- `我的知识库/原文`: extracted original Markdown from the web page or PDF.
+- `我的知识库/状态/处理中`: temporary in-progress records.
+- `我的知识库/状态/失败记录`: failure diagnostic notes.
+- `我的知识库/状态/历史记录`: visible import history records.
+- `我的知识库/概念库/来源`: per-import source records.
+- `我的知识库/概念库/待入库`: concept pages waiting for review.
+- `我的知识库/概念库/已入库`: approved concept pages.
+- `我的知识库/概念库/索引.md`: generated knowledge-base index.
+
 ## Usage
 
-1. Open the command palette and run `Import from URL` (`import`), or click the ribbon icon.
+1. Open the command palette and run `从 URL 导入` (`import`), or click the ribbon icon.
 2. Paste a public URL.
 3. Choose a model.
 4. Check the summary tip to see the latest import status for the same URL, and optionally open the latest result/history note.
-5. Wait for the plugin to create the final note and update the import history.
-6. (Optional) Run `Open config file` (`open-config`) to edit `config.toml` directly in your vault.
+5. Wait for the plugin to create separate original and AI整理 notes, plus the source record and pending concept pages.
+6. (Optional) Run `打开配置文件` (`open-config`) to edit `config.toml` directly in your vault.
+7. (Optional) Run `打开知识库管理` (`open-wiki-manager`) to review candidates, toggle graph visibility, and inspect link counts.
+8. (Optional) Run `批准当前知识库候选页` or `拒绝当前知识库候选页` while a candidate note is active.
+9. (Optional) Select `清理旧图谱链接` in the manager to remove old pre-approval concept wikilinks from generated AI整理 notes.
+10. (Optional) Select `重建真实关联` in the manager to remove noisy wikilinks from generated files and rebuild only approved concept-to-concept links.
+
+## Pending and approved concepts
+
+- Pending: a model-extracted draft from imported content. It is written to `我的知识库/概念库/待入库` for review, does not overwrite the formal knowledge base, and does not create formal concept wikilinks in the AI整理 note before approval.
+- Approved: a formal knowledge-base page under `我的知识库/概念库/已入库`. The manager can mark it visible or hidden; hidden concepts are excluded from plugin-rebuilt relationship links.
+- Graph rebuilds only use explicit `相关概念` sections in approved concept pages, so two terms merely appearing in the same body text no longer creates a relationship.
+
+## Graph color groups
+
+Obsidian’s core graph colors are configured in **Graph → Groups**. The plugin writes stable tags so you can color groups directly:
+
+- Concepts: `tag:#import-url/concept`
+- AI整理 notes: `tag:#import-url/article`
+- Original notes: `tag:#import-url/original`
+- Source/history/status notes: `tag:#import-url/source`, `tag:#import-url/history`, `tag:#import-url/processing`, `tag:#import-url/failed`
+
+Your own handwritten files do not receive these tags, so they stay in the graph’s default color unless you add separate groups. The plugin also writes a `graph_group` frontmatter field for property-based search or future filtering.
+
+Recommended group order:
+
+1. `tag:#import-url/concept`: concept pages, use a strong color.
+2. `tag:#import-url/article`: AI整理 notes, use a lighter color.
+3. `tag:#import-url/original`: original source notes, use gray or low-saturation color.
+4. `tag:#import-url/source OR tag:#import-url/history OR tag:#import-url/processing OR tag:#import-url/failed`: source and status files, use a faint color or filter them out.
+
+Your own files do not carry `#import-url/...` tags, so they remain as the third category in the default graph color unless you create your own path/tag group.
 
 ## Configuration
 
-Settings are grouped into `Connection`, `Models`, `Output`, and `Fallbacks`.
+Settings are grouped into `模型接口`, `模型`, `输出`, and `抓取兜底`.
 
 Runtime precedence remains:
 
@@ -49,17 +98,17 @@ Runtime precedence remains:
 The plugin supports:
 
 - secure API key storage through Obsidian secret storage
-- a default OpenAI-compatible API base URL
-- extra custom model IDs
+- a DeepSeek API address, defaulting to `https://api.deepseek.com`
+- extra custom model names
 - per-model API base URL overrides
-- output, processing, failed, and history folders
+- output, processing, failed, history, and knowledge-base folders
 - optional fallback fetchers with clear disclosure
 
 ## Platform support
 
 - Core import flow is compatible with desktop and mobile.
-- `Site JSON fallback` and `Reader fallback` behavior is unchanged.
-- `Browser render fallback (experimental)` is disabled by default and desktop-only (currently macOS-only).
+- `阅读模式兜底` is used when direct fetch fails or only returns a script shell. It sends the source URL to r.jina.ai and is off by default.
+- `浏览器渲染兜底（实验）` is disabled by default and desktop-only (currently macOS-only).
 - On unsupported environments, browser-render fallback fails clearly without touching desktop-only APIs.
 
 ## Development
@@ -97,13 +146,15 @@ npm run lint
 ## Troubleshooting
 
 - Missing API key:
-  Save the key in Settings under `Connection` → `API key`. Imports and connection tests both require a saved key.
+  Save the key in Settings under `模型接口` → `API 密钥`. Imports and connection tests both require a saved key.
+- Missing model:
+  Enter a model name in Settings under `模型` → `默认模型`, or choose a model in the import modal.
 - `config.toml` seems ignored:
-  Confirm the path in `Connection` → `Config file path`, then reopen the modal or start a new import to reload runtime overrides.
+  Confirm the path in `模型接口` → `配置文件路径`, then reopen the modal or start a new import to reload runtime overrides.
 - Import fails on mobile with browser fallback enabled:
-  Disable `Browser render fallback (experimental)`. It is desktop-only and currently macOS-only.
+  Disable `浏览器渲染兜底（实验）`. It is desktop-only and currently macOS-only.
 - Import appears stuck:
-  Check the visible history note under your configured `History folder` to see stage, progress message, and last update time.
+  Check the visible history note under your configured `历史记录目录` to see stage, progress message, and last update time.
 
 ## Release
 

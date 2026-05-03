@@ -6,8 +6,8 @@ const makeEntry = (id: string, submittedAt: string): ImportHistoryEntry => ({
 	id,
 	url: `https://example.com/${id}`,
 	host: "example.com",
-	apiBaseUrl: "https://api.openai.com/v1",
-	model: "gpt-5-mini",
+	apiBaseUrl: "https://api.deepseek.com",
+	model: "deepseek-v4-flash",
 	submittedAt,
 	status: "complete",
 	progressStage: "complete",
@@ -25,6 +25,37 @@ describe("history helpers", () => {
 		]);
 
 		expect(entries.map((entry) => entry.id)).toEqual(["newer", "older"]);
+	});
+
+	it("uses Chinese default progress messages for legacy history entries", () => {
+		const entries = normalizeRecentImports([
+			{
+				id: "legacy-complete",
+				url: "https://example.com/complete",
+				host: "example.com",
+				model: "deepseek-v4-flash",
+				submittedAt: "2026-04-12T10:00:00.000Z",
+				status: "complete",
+			},
+			{
+				id: "legacy-failed",
+				url: "https://example.com/failed",
+				host: "example.com",
+				model: "deepseek-v4-flash",
+				submittedAt: "2026-04-11T10:00:00.000Z",
+				status: "failed",
+			},
+			{
+				id: "legacy-processing",
+				url: "https://example.com/processing",
+				host: "example.com",
+				model: "deepseek-v4-flash",
+				submittedAt: "2026-04-10T10:00:00.000Z",
+				status: "processing",
+			},
+		]);
+
+		expect(entries.map((entry) => entry.progressMessage)).toEqual(["导入完成", "导入失败", "已排队"]);
 	});
 
 	it("upserts entries by id", () => {
@@ -45,7 +76,7 @@ describe("history helpers", () => {
 			makeEntry("older", "2026-03-30T03:00:00.000Z"),
 		], new Date("2026-04-13T12:00:00.000Z"));
 
-		expect(groups.map((group) => group.label)).toEqual(["Today", "Yesterday", "Last 7 days", "Older"]);
+		expect(groups.map((group) => group.label)).toEqual(["今天", "昨天", "最近 7 天", "更早"]);
 	});
 
 	it("finds the latest entry for the same URL even if the hash differs", () => {
@@ -83,16 +114,16 @@ describe("history helpers", () => {
 	it("prefers the final note for completed imports and the history note otherwise", () => {
 		expect(getPreferredImportOpenPath({
 			...makeEntry("complete", "2026-04-14T10:00:00.000Z"),
-			notePath: "Inbox/Clippings/final.md",
-			historyNotePath: "Inbox/Clippings/History/record.md",
-		})).toBe("Inbox/Clippings/final.md");
+			notePath: "我的知识库/成文/final.md",
+			historyNotePath: "我的知识库/状态/历史记录/record.md",
+		})).toBe("我的知识库/成文/final.md");
 
 		expect(getPreferredImportOpenPath({
 			...makeEntry("processing", "2026-04-14T10:00:00.000Z"),
 			status: "processing",
 			progressStage: "fetching",
-			historyNotePath: "Inbox/Clippings/History/processing.md",
-			notePath: "Inbox/Clippings/_processing/task.md",
-		})).toBe("Inbox/Clippings/History/processing.md");
+			historyNotePath: "我的知识库/状态/历史记录/processing.md",
+			notePath: "我的知识库/状态/处理中/task.md",
+		})).toBe("我的知识库/状态/历史记录/processing.md");
 	});
 });

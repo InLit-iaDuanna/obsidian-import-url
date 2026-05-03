@@ -1,4 +1,5 @@
 import {FailureInfo, SourceType, StructuredDigest} from "../types";
+import {renderConceptDraftList} from "../wiki-links";
 import {FrontmatterInput, renderFrontmatter} from "./frontmatter";
 
 function pad(value: number): string {
@@ -43,7 +44,11 @@ export function ensureDisplayTitle(...candidates: string[]): string {
 		}
 	}
 
-	return "Untitled";
+	return "未命名";
+}
+
+function renderSourceType(sourceType: SourceType): string {
+	return sourceType === "pdf" ? "PDF" : "网页";
 }
 
 function renderList(items: string[]): string {
@@ -54,20 +59,43 @@ function renderList(items: string[]): string {
 	return items.map((item) => `- ${item}`).join("\n");
 }
 
+function renderNumberedList(items: string[]): string {
+	if (items.length === 0) {
+		return "无";
+	}
+
+	return items.map((item, index) => `${index + 1}. ${item}`).join("\n");
+}
+
 function renderWarningSummary(warnings: string[]): string {
 	return warnings.length > 0 ? warnings.join("；") : "无";
 }
 
-export function buildProcessingFileName(host: string, suffix: string, date: Date): string {
-	return `${formatFileTimestamp(date)} - Processing - ${sanitizeNoteTitle(host) || "source"} - ${suffix}.md`;
+function renderPath(path: string | undefined): string {
+	return path?.trim() || "无";
+}
+
+function escapeObsidianLinks(markdown: string): string {
+	return markdown.replace(/\[\[([^\]\n]+)\]\]/gu, (_match, target: string) => {
+		const display = target.split("|").pop() || target;
+		return display.split("#")[0] || display;
+	});
+}
+
+export function buildProcessingFileName(host: string, date: Date): string {
+	return `${formatFileTimestamp(date)} - 处理中 - ${sanitizeNoteTitle(host) || "来源"}.md`;
 }
 
 export function buildSuccessFileName(title: string, date: Date): string {
-	return `${formatFileTimestamp(date)} - ${ensureDisplayTitle(title)}.md`;
+	return `${formatFileTimestamp(date)} - AI整理 - ${ensureDisplayTitle(title)}.md`;
 }
 
-export function buildFailedFileName(title: string, suffix: string, date: Date): string {
-	return `${formatFileTimestamp(date)} - Failed - ${ensureDisplayTitle(title)} - ${suffix}.md`;
+export function buildOriginalFileName(title: string, date: Date): string {
+	return `${formatFileTimestamp(date)} - 原文 - ${ensureDisplayTitle(title)}.md`;
+}
+
+export function buildFailedFileName(title: string, date: Date): string {
+	return `${formatFileTimestamp(date)} - 失败 - ${ensureDisplayTitle(title)}.md`;
 }
 
 export function renderProcessingNote(input: FrontmatterInput): string {
@@ -84,43 +112,80 @@ export function renderSuccessNote(input: {
 	frontmatter: FrontmatterInput;
 	sourceType: SourceType;
 	sourceUrl: string;
+	wikiConceptsFolder: string;
 	digest: StructuredDigest;
+	originalNotePath?: string;
 }): string {
 	const {frontmatter, digest} = input;
 
 	return [
 		renderFrontmatter(frontmatter),
 		"",
-		"# 摘要",
+		`# ${frontmatter.title}`,
 		"",
-		"## 一句话总结",
+		"## 核心摘要",
 		"",
 		digest.summary || "无",
 		"",
-		"## 核心要点",
+		"## 关键结论",
 		"",
-		renderList(digest.keyPoints),
+		renderNumberedList(digest.keyPoints),
 		"",
-		"## 关键信息",
+		"## 事实与依据",
 		"",
 		renderList(digest.keyFacts),
 		"",
-		"## 可执行事项 / 相关线索",
+		"## 后续行动",
 		"",
 		renderList(digest.actionItems),
 		"",
-		"# 全量整理版",
+		"## 待入库概念",
 		"",
-		digest.fullOrganizedMarkdown || "无",
+		"以下概念仅作为候选进入知识库管理，批准前不会写入正式概念图谱。",
+		"",
+		renderConceptDraftList(digest.concepts),
+		"",
+		"## 成文整理",
+		"",
+		escapeObsidianLinks(digest.fullOrganizedMarkdown || "无"),
 		"",
 		"# 来源",
 		"",
-		`- 原始链接: ${input.sourceUrl}`,
-		`- 来源类型: ${input.sourceType}`,
-		`- 来源标题: ${frontmatter.sourceTitle || "未知"}`,
-		`- 抓取时间: ${frontmatter.clippedAt}`,
-		`- 处理模型: ${frontmatter.model}`,
-		`- 警告: ${renderWarningSummary(digest.warnings)}`,
+		`- 原文笔记路径：${renderPath(input.originalNotePath)}`,
+		`- 原始链接：${input.sourceUrl}`,
+		`- 来源类型：${renderSourceType(input.sourceType)}`,
+		`- 来源标题：${frontmatter.sourceTitle || "未知"}`,
+		`- 抓取时间：${frontmatter.clippedAt}`,
+		`- 处理模型：${frontmatter.model}`,
+		`- 警告：${renderWarningSummary(digest.warnings)}`,
+	].join("\n");
+}
+
+export function renderOriginalNote(input: {
+	frontmatter: FrontmatterInput;
+	sourceType: SourceType;
+	sourceUrl: string;
+	markdown: string;
+	warnings: string[];
+	structuredNotePath?: string;
+}): string {
+	const {frontmatter} = input;
+
+	return [
+		renderFrontmatter(frontmatter),
+		"",
+		"# 原文",
+		"",
+		escapeObsidianLinks(input.markdown || "无"),
+		"",
+		"# 来源",
+		"",
+		`- AI 整理笔记路径：${renderPath(input.structuredNotePath)}`,
+		`- 原始链接：${input.sourceUrl}`,
+		`- 来源类型：${renderSourceType(input.sourceType)}`,
+		`- 来源标题：${frontmatter.sourceTitle || "未知"}`,
+		`- 抓取时间：${frontmatter.clippedAt}`,
+		`- 警告：${renderWarningSummary(input.warnings)}`,
 	].join("\n");
 }
 
@@ -150,12 +215,12 @@ export function renderFailureNote(input: {
 		"",
 		"## 来源",
 		"",
-		`- 原始链接: ${input.sourceUrl}`,
-		`- 模型: ${failure.model ?? frontmatter.model}`,
-		`- API 地址: ${failure.apiBaseUrl ?? "未知"}`,
-		`- 请求接口: ${failure.requestUrl ?? "未知"}`,
-		`- Request ID: ${failure.requestId ?? "未知"}`,
-		`- HTTP 状态: ${failure.httpStatus ?? "未知"}`,
-		`- 记录时间: ${frontmatter.clippedAt}`,
+		`- 原始链接：${input.sourceUrl}`,
+		`- 模型：${failure.model ?? frontmatter.model}`,
+		`- API 地址：${failure.apiBaseUrl ?? "未知"}`,
+		`- 请求接口：${failure.requestUrl ?? "未知"}`,
+		`- 请求 ID：${failure.requestId ?? "未知"}`,
+		`- HTTP 状态：${failure.httpStatus ?? "未知"}`,
+		`- 记录时间：${frontmatter.clippedAt}`,
 	].join("\n");
 }
