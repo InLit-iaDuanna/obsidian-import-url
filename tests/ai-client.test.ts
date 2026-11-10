@@ -149,7 +149,7 @@ describe("ai-client", () => {
 		expect(() => parseStructuredDigestResponse({
 			status: "incomplete",
 			error: {message: "cut off"},
-		}, false)).toThrowError(/incomplete/);
+		}, false)).toThrow(/incomplete/);
 	});
 
 	it("builds PDF requests from locally extracted text", async () => {
