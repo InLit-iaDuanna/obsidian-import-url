@@ -23,10 +23,14 @@
 		"jsdom": "^26.1.0",
 		"typescript": "^5.8.3",
 		"typescript-eslint": "8.35.1",
-		"vitest": "^3.2.4"
+		"vitest": "^4.1.12"
 	},
 	"dependencies": {
 		"@mozilla/readability": "^0.6.0",
-		"obsidian": "latest"
+		"obsidian": "1.10.3"
+	},
+	"overrides": {
+		"moment": "^2.31.0",
+		"minimatch@>=7 <11.0.1": "^11.0.1"
 	}
 }

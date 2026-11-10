@@ -1,7 +1,7 @@
 import {describe, expect, it, vi} from "vitest";
 import {ImportController} from "../src/import-controller";
 import {DEFAULT_SETTINGS} from "../src/settings";
-import {ImportHistoryEntry, JobRunResult} from "../src/types";
+import {ImportHistoryEntry, ImportUrlPluginSettings, JobRunResult} from "../src/types";
 import {createFakeApp} from "./helpers";
 
 function makeProcessingEntry(overrides: Partial<ImportHistoryEntry> = {}): ImportHistoryEntry {
@@ -128,7 +128,7 @@ describe("import controller", () => {
 		};
 		const run = vi.fn<() => Promise<JobRunResult>>().mockResolvedValue(jobResult);
 
-		vi.spyOn(controller as never, "refreshEffectiveSettings").mockResolvedValue(plugin.settings);
+		vi.spyOn(controller as unknown as {refreshEffectiveSettings: () => Promise<ImportUrlPluginSettings>}, "refreshEffectiveSettings").mockResolvedValue(plugin.settings);
 		(controller as unknown as {jobRunner: {isBusy: () => boolean; run: typeof run}}).jobRunner = {
 			isBusy: () => false,
 			run,
@@ -160,9 +160,9 @@ describe("import controller", () => {
 		const {plugin} = createPluginStub([activeEntry]);
 		const controller = new ImportController(plugin as never);
 		const run = vi.fn();
-		const openVaultPath = vi.spyOn(controller as never, "openVaultPath").mockResolvedValue(true);
+		const openVaultPath = vi.spyOn(controller, "openVaultPath").mockResolvedValue(true);
 
-		vi.spyOn(controller as never, "refreshEffectiveSettings").mockResolvedValue(plugin.settings);
+		vi.spyOn(controller as unknown as {refreshEffectiveSettings: () => Promise<ImportUrlPluginSettings>}, "refreshEffectiveSettings").mockResolvedValue(plugin.settings);
 		(controller as unknown as {jobRunner: {isBusy: () => boolean; run: typeof run}}).jobRunner = {
 			isBusy: () => true,
 			run,
